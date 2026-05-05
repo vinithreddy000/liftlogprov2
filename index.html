@@ -2693,7 +2693,8 @@ function escapeAttr(str) {
 async function saveWorkout() {
   if (!inTime) { alert('Set your check-in time first'); return; }
   if (selectedMuscles.length === 0) { alert('Select at least one muscle group'); return; }
-  if (currentExercises.length === 0) { alert('Add at least one exercise'); return; }
+  const isRestDay = selectedMuscles.includes('Rest Day') && selectedMuscles.length === 1;
+  if (currentExercises.length === 0 && !isRestDay) { alert('Add at least one exercise'); return; }
 
   const now = new Date();
   const finalOut = outTime || now.toTimeString().slice(0,5);
