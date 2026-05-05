@@ -3347,8 +3347,24 @@ async function initCoach() {
 async function loadKeysFromSupabase() {
   if (!currentSession || !currentSession.user) return [];
   const userId = currentSession.user.id;
+
+  // Try fetching both columns; PostgREST ignores unknown columns gracefully
   const res = await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId + '&select=groq_api_keys,groq_api_key');
   if (!res.ok) {
+    // If schema cache doesn't know groq_api_keys yet, fall back to just old column
+    if (res.status === 400) {
+      const res2 = await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId + '&select=groq_api_key');
+      if (!res2.ok) return [];
+      const data2 = await res2.json().catch(() => []);
+      if (!data2 || data2.length === 0) return [];
+      const val = data2[0].groq_api_key;
+      if (!val) return [];
+      // May be JSON array stored as fallback string
+      if (val.startsWith('[')) {
+        try { return JSON.parse(val).filter(Boolean); } catch(e) {}
+      }
+      return [val];
+    }
     const errText = await res.text();
     let parsed = {};
     try { parsed = JSON.parse(errText); } catch(e) {}
@@ -3357,32 +3373,68 @@ async function loadKeysFromSupabase() {
   const data = await res.json();
   if (!data || data.length === 0) return [];
   const row = data[0];
-  // Support new array column and old single-key column (migration)
+  // Prefer new array column
   if (row.groq_api_keys && Array.isArray(row.groq_api_keys) && row.groq_api_keys.length > 0) {
     return row.groq_api_keys.filter(Boolean);
   }
-  if (row.groq_api_key) return [row.groq_api_key];
+  // Fall back to old single-key column (plain or JSON-encoded array)
+  if (row.groq_api_key) {
+    const val = row.groq_api_key;
+    if (val.startsWith('[')) {
+      try { return JSON.parse(val).filter(Boolean); } catch(e) {}
+    }
+    return [val];
+  }
   return [];
 }
 
 async function saveKeysToSupabase(keys) {
   if (!currentSession || !currentSession.user) throw new Error('Not logged in');
   const userId = currentSession.user.id;
-  const payload = { groq_api_keys: keys };
-  const patchRes = await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId, {
-    method: 'PATCH',
-    headers: { ...getAuthHeaders(), 'Prefer': 'return=representation,count=exact' },
-    body: JSON.stringify(payload)
-  });
-  const countHeader = patchRes.headers?.get('content-range');
-  const nothingUpdated = countHeader === '*/0' || patchRes.status === 404;
-  if (nothingUpdated) {
-    await dbFetch('/rest/v1/user_api_keys', {
-      method: 'POST',
-      headers: { ...getAuthHeaders(), 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ user_id: userId, ...payload })
-    });
+
+  // Try new array column first; fall back to JSON-in-old-column if schema cache is stale
+  async function tryUpsert(payload, isInsert) {
+    if (isInsert) {
+      const res = await dbFetch('/rest/v1/user_api_keys', {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Prefer': 'return=minimal' },
+        body: JSON.stringify({ user_id: userId, ...payload })
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error('HTTP ' + res.status + ': ' + t);
+      }
+    } else {
+      const res = await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId, {
+        method: 'PATCH',
+        headers: { ...getAuthHeaders(), 'Prefer': 'return=representation,count=exact' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error('HTTP ' + res.status + ': ' + t);
+      }
+      return res;
+    }
   }
+
+  // Check if row exists
+  const checkRes = await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId + '&select=user_id');
+  const checkData = await checkRes.json().catch(() => []);
+  const rowExists = Array.isArray(checkData) && checkData.length > 0;
+
+  // Attempt 1: new array column
+  try {
+    await tryUpsert({ groq_api_keys: keys }, !rowExists);
+    return true;
+  } catch(e) {
+    if (!e.message.includes('schema cache') && !e.message.includes('400') && !e.message.includes('column')) throw e;
+    // Schema cache stale — fall back to storing as JSON in old column
+    console.warn('groq_api_keys column not visible yet, using groq_api_key fallback:', e.message);
+  }
+
+  // Attempt 2: fallback — store JSON array as string in old groq_api_key column
+  await tryUpsert({ groq_api_key: JSON.stringify(keys) }, !rowExists);
   return true;
 }
 
