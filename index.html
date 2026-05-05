@@ -3428,13 +3428,14 @@ async function saveKeysToSupabase(keys) {
     await tryUpsert({ groq_api_keys: keys }, !rowExists);
     return true;
   } catch(e) {
-    if (!e.message.includes('schema cache') && !e.message.includes('400') && !e.message.includes('column')) throw e;
+    // New (only fall through on "column doesn't exist" style errors, not ALL 400s):
+    if (!e.message.includes('schema cache') && !e.message.includes('column') && !e.message.includes('42703')) throw e;
     // Schema cache stale — fall back to storing as JSON in old column
     console.warn('groq_api_keys column not visible yet, using groq_api_key fallback:', e.message);
   }
 
-  // Attempt 2: fallback — store JSON array as string in old groq_api_key column
-  await tryUpsert({ groq_api_key: JSON.stringify(keys) }, !rowExists);
+   // Attempt 2: fallback — groq_api_key is TEXT[], send array directly
+  await tryUpsert({ groq_api_key: keys }, !rowExists);
   return true;
 }
 
