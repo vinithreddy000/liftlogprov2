@@ -3533,19 +3533,39 @@ function analyzeWorkouts() {
     });
   });
 
-  // Last 7 days sessions (default context window)
-  const cutoff7d = new Date();
-  cutoff7d.setDate(cutoff7d.getDate() - 7);
-  cutoff7d.setHours(0,0,0,0);
-  const last7dWorkouts = workouts.filter(w => new Date(w.date) >= cutoff7d);
-  const recentSessions = (last7dWorkouts.length > 0 ? last7dWorkouts : workouts.slice(0, 5)).map(w => {
+  // Last 7 workouts (by count) as default context
+  const sortedDesc = [...workouts].sort((a,b) => new Date(b.date) - new Date(a.date));
+  const last7Workouts = sortedDesc.slice(0, 7);
+
+  // Detect latest workout's muscle groups, then find the previous session with same muscles
+  const latestWorkout = sortedDesc[0];
+  const latestMuscles = latestWorkout ? (latestWorkout.muscles || []) : [];
+  let prevSameMuscleWorkout = null;
+  if (latestMuscles.length > 0) {
+    // Find most recent workout (excluding the latest) that shares at least one muscle group
+    prevSameMuscleWorkout = sortedDesc.slice(1).find(w =>
+      (w.muscles || []).some(m => latestMuscles.includes(m))
+    ) || null;
+  }
+
+  // Merge: last 7 workouts + previous same-muscle session (deduplicated)
+  const contextWorkoutIds = new Set(last7Workouts.map(w => w.id));
+  const contextWorkouts = [...last7Workouts];
+  if (prevSameMuscleWorkout && !contextWorkoutIds.has(prevSameMuscleWorkout.id)) {
+    contextWorkouts.push(prevSameMuscleWorkout);
+  }
+  contextWorkouts.sort((a,b) => new Date(a.date) - new Date(b.date));
+
+  const recentSessions = contextWorkouts.map(w => {
+    const isComparison = prevSameMuscleWorkout && w.id === prevSameMuscleWorkout.id;
     const exList = (w.exercises || []).map(ex => {
       const name = ex.name || ex.name_raw || '';
       if (!name) return null;
       const sets = (ex.sets || []).map(s => `${s.kg||0}kg×${s.reps||0}`).join(', ');
       return `${name}: ${sets}`;
     }).filter(Boolean);
-    return `ID:${w.id} ${w.date} | ${(w.muscles||[]).join(',')} | ${w.duration||0}min\n  ${exList.join('\n  ')}`;
+    const tag = isComparison ? ' [PREV SAME MUSCLE]' : '';
+    return `ID:${w.id} ${w.date} | ${(w.muscles||[]).join(',')} | ${w.duration||0}min${tag}\n  ${exList.join('\n  ')}`;
   });
 
   coachStats = {
@@ -3554,7 +3574,10 @@ function analyzeWorkouts() {
     muscle_frequency: Object.entries(muscleFreq).sort((a,b) => b[1] - a[1]).map(([m,c]) => `${m}:${c}`).join(', '),
     personal_records: prs.slice(0, 20).join('\n  '),
     recent_sessions: recentSessions.join('\n\n'),
-    recent_label: last7dWorkouts.length > 0 ? 'Last 7 days' : 'Last 5 sessions',
+    recent_label: prevSameMuscleWorkout
+      ? `Last 7 workouts + prev ${latestMuscles.join('/')} session (ID:${prevSameMuscleWorkout.id}, ${prevSameMuscleWorkout.date})`
+      : 'Last 7 workouts',
+    latest_muscles: latestMuscles.join(', ') || 'Unknown',
     most_trained: Object.keys(muscleFreq).length > 0 ? Object.keys(muscleFreq).reduce((a,b) => muscleFreq[a] > muscleFreq[b] ? a : b) : 'None',
     least_trained: Object.keys(muscleFreq).length > 0 ? Object.keys(muscleFreq).reduce((a,b) => muscleFreq[a] < muscleFreq[b] ? a : b) : 'None'
   };
@@ -3568,6 +3591,7 @@ function buildSystemPrompt() {
 
 ATHLETE: ${coachStats.total_sessions} sessions | ${coachStats.date_range}
 Most: ${coachStats.most_trained} | Least: ${coachStats.least_trained}
+Latest session muscles: ${coachStats.latest_muscles}
 Freq: ${coachStats.muscle_frequency}
 
 PRs: ${coachStats.personal_records}
@@ -3579,6 +3603,8 @@ RULES:
 - Simple question → 1-3 sentence direct answer only
 - Review/analysis → structured format below
 - Cite real lifts/dates/weights; flag imbalances; suggest next session
+- The session tagged [PREV SAME MUSCLE] is the previous session for that muscle group — always compare it with the latest session to show progress
+- When user just opens coach or asks for overview, proactively compare latest session vs previous same-muscle session
 
 STRUCTURED FORMAT (analysis only):
 **Rating: X/10**
@@ -3648,13 +3674,10 @@ function detectTemporalQuery(message) {
   }
 
   // Pattern 0: Compare two IDs — "compare day 20 and day 25" / "day 20 vs day 25"
-  const cmpId = msg.match(/(?:compare|vs\.?|versus).*?(?:day|workout|session)\s+(\d+).*?(?:and|vs\.?|versus|&).*?(?:day|workout|session)\s+(\d+)/);
-  if (!cmpId) {
-    const cmpId2 = msg.match(/(?:day|workout|session)\s+(\d+).*?(?:vs\.?|versus|and|&|compare).*?(?:day|workout|session)\s+(\d+)/);
-    if (cmpId2) return { type: 'compare_ids', ids: [parseInt(cmpId2[1]), parseInt(cmpId2[2])] };
-  } else {
-    return { type: 'compare_ids', ids: [parseInt(cmpId[1]), parseInt(cmpId[2])] };
-  }
+  // Try both orderings: "compare ... day X ... day Y" and "day X ... vs ... day Y"
+  const cmpId = msg.match(/(?:compare|vs\.?|versus).*?(?:day|workout|session)\s+(\d+).*?(?:and|vs\.?|versus|&).*?(?:day|workout|session)\s+(\d+)/)
+    || msg.match(/(?:day|workout|session)\s+(\d+).*?(?:vs\.?|versus|and|&|compare).*?(?:day|workout|session)\s+(\d+)/);
+  if (cmpId) return { type: 'compare_ids', ids: [parseInt(cmpId[1]), parseInt(cmpId[2])] };
 
   // Pattern 0b: Compare two dates — "compare 20-04-2026 and 25-04-2026"
   const allDates = [...msg.matchAll(/(\d{2}-\d{2}-\d{4}|\d{4}-\d{2}-\d{2})/g)].map(m => normDate(m[1]));
@@ -3672,6 +3695,10 @@ function detectTemporalQuery(message) {
     const byVol = /volume|heaviest|weight/.test(msg) ? 'volume' : /duration|longest|time/.test(msg) ? 'duration' : 'volume';
     return { type: 'topN', n: parseInt(topMatch[1]), days: nDays, sortBy: byVol };
   }
+
+  // Pattern 1.5: "last X workouts/sessions" (count-based, not time-based)
+  const lastNWorkouts = msg.match(/last\s+(\d+)\s+(?:workout|session|record)s?/);
+  if (lastNWorkouts) return { type: 'last_n_workouts', n: parseInt(lastNWorkouts[1]) };
 
   // Pattern 1: "day X" or "workout X" (ID reference) — single
   const idMatch = msg.match(/(?:day|workout|session)\s+(\d+)/);
@@ -3726,6 +3753,12 @@ function filterWorkoutsByQuery(query) {
       return { w, score };
     }).sort((a,b) => b.score - a.score).slice(0, query.n);
     return { workouts: scored.map(x => x.w), description: `Top ${query.n} by ${query.sortBy} (last ${query.days} days)` };
+  }
+
+  if (query.type === 'last_n_workouts') {
+    const sorted = [...workouts].sort((a,b) => new Date(b.date) - new Date(a.date));
+    const sliced = sorted.slice(0, query.n);
+    return { workouts: sliced.reverse(), description: `Last ${query.n} workouts (${sliced.length} found)` };
   }
 
   if (query.type === 'id') {
