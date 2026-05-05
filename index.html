@@ -1298,7 +1298,7 @@ input::placeholder { color: var(--text3); }
     <div class="section-label">🏋️ AI COACH REX</div>
     
     <!-- API Key Input (shows if no key stored) -->
-    <div id="groq-key-setup" style="display:none">
+    <div id="groq-key-setup">
       <div class="ex-card" style="background: rgba(255,140,0,0.05); border-color: rgba(255,140,0,0.3);">
         <div style="font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 1px; color: var(--orange); margin-bottom: 8px;">⚠️ GROQ API KEY REQUIRED</div>
         <div style="font-size: 11px; color: var(--text2); line-height: 1.6; margin-bottom: 10px;">
@@ -3309,14 +3309,20 @@ async function loadGroqKeyFromSupabase() {
   
   const userId = currentSession.user.id;
   
-  const res = await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId + '&select=groq_api_key');
-  const data = await res.json();
-  
-  if (data && data.length > 0) {
-    return data[0].groq_api_key;
+  try {
+    const res = await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId + '&select=groq_api_key');
+    const data = await res.json();
+    
+    if (data && data.length > 0) {
+      return data[0].groq_api_key;
+    }
+    
+    return null;
+  } catch (err) {
+    // Table might not exist yet or other DB error
+    console.warn('Could not load API key from Supabase:', err.message);
+    return null;
   }
-  
-  return null;
 }
 
 async function deleteGroqKeyFromSupabase() {
