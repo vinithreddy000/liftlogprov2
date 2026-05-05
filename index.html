@@ -228,7 +228,7 @@ body {
 .muscle-chip[data-m="Pull"].selected { background: rgba(0,180,255,0.15); border-color: rgba(0,180,255,0.6); color: #00b4ff; }
 .muscle-chip[data-m="Lower Body"].selected { background: rgba(255,107,53,0.15); border-color: rgba(255,107,53,0.5); color: var(--legs-c); }
 .muscle-chip[data-m="Upper Body"].selected { background: rgba(180,122,255,0.15); border-color: rgba(180,122,255,0.5); color: var(--purple); }
-.muscle-chip[data-m="Rest Day"].selected { background: rgba(122,136,150,0.12); border-color: rgba(122,136,150,0.4); color: var(--text2); }
+.muscle-chip[data-m="Rest Day"].selected { background: rgba(122,136,150,0.12); border-color: rgba(122,136,150,0.4); color: var(--text2); border-style: solid; }
 /* Training day chip separator */
 .muscle-chip.day-type-chip { border-style: dashed; }
 .muscle-chip.day-type-chip.selected { border-style: solid; }
@@ -2132,8 +2132,8 @@ function renderMuscleGrid() {
   const muscleChips = MUSCLES.map(m =>
     `<button class="muscle-chip${selectedMuscles.includes(m)?' selected':''}" data-m="${m}" onclick="toggleMuscle('${m}')">${m}</button>`
   ).join('');
-  const dayChips = TRAINING_DAYS.map(m =>
-    `<button class="muscle-chip day-type-chip${selectedMuscles.includes(m)?' selected':''}" data-m="${escapeAttr(m)}" onclick="toggleDayType('${escapeAttr(m)}')">${m}</button>`
+  const dayChips = TRAINING_DAYS.map((m, idx) =>
+    `<button class="muscle-chip day-type-chip${selectedMuscles.includes(m)?' selected':''}" data-m="${m}" onclick="toggleDayType(${idx})">${m}</button>`
   ).join('');
   g.innerHTML = muscleChips
     + `<div style="width:100%;height:1px;background:var(--border);margin:4px 0"></div>`
@@ -2156,7 +2156,8 @@ function toggleMuscle(m) {
   saveDraft();
 }
 
-function toggleDayType(dayType) {
+function toggleDayType(dayIdx) {
+  const dayType = TRAINING_DAYS[dayIdx];
   // Day types are exclusive of each other (only one at a time), but can coexist with individual muscles
   const isSelected = selectedMuscles.includes(dayType);
   // Deselect other day types
@@ -2691,9 +2692,9 @@ function escapeAttr(str) {
 
 // ── SAVE / CLEAR ──────────────────────────────────────────────────────────
 async function saveWorkout() {
-  if (!inTime) { alert('Set your check-in time first'); return; }
   if (selectedMuscles.length === 0) { alert('Select at least one muscle group'); return; }
   const isRestDay = selectedMuscles.includes('Rest Day') && selectedMuscles.length === 1;
+  if (!inTime && !isRestDay) { alert('Set your check-in time first'); return; }
   if (currentExercises.length === 0 && !isRestDay) { alert('Add at least one exercise'); return; }
 
   const now = new Date();
