@@ -3227,25 +3227,44 @@ let coachStats = null;
 
 // ── Initialize Coach ───────────────────────────────────────────────────────
 async function initCoach() {
+  console.log('[Coach] Initializing...');
+  
+  // Ensure UI elements exist
+  const setupForm = document.getElementById('groq-key-setup');
+  const chatContainer = document.getElementById('coach-chat-container');
+  
+  if (!setupForm || !chatContainer) {
+    console.error('[Coach] UI elements not found!');
+    return;
+  }
+  
   // Try to load API key from Supabase
   try {
+    console.log('[Coach] Checking for existing API key...');
     const key = await loadGroqKeyFromSupabase();
+    
     if (key) {
-      document.getElementById('groq-key-setup').style.display = 'none';
-      document.getElementById('coach-chat-container').style.display = 'block';
+      console.log('[Coach] API key found! Showing chat interface.');
+      setupForm.style.display = 'none';
+      chatContainer.style.display = 'block';
+      
+      // Analyze workouts and show intro if first time
       analyzeWorkouts();
       if (coachMessages.length === 0) {
         sendAutoIntro();
       }
     } else {
-      document.getElementById('groq-key-setup').style.display = 'block';
-      document.getElementById('coach-chat-container').style.display = 'none';
+      console.log('[Coach] No API key found. Showing setup form.');
+      setupForm.style.display = 'block';
+      chatContainer.style.display = 'none';
     }
   } catch (err) {
-    console.error('Error loading API key:', err);
-    document.getElementById('groq-key-setup').style.display = 'block';
-    document.getElementById('coach-chat-container').style.display = 'none';
+    console.error('[Coach] Error loading API key:', err);
+    // On error, show setup form
+    setupForm.style.display = 'block';
+    chatContainer.style.display = 'none';
   }
+}
 }
 
 async function saveGroqKey() {
@@ -3507,11 +3526,131 @@ async function sendAutoIntro() {
   }
 }
 
+
+// ── Temporal Query Detection & Filtering ───────────────────────────────────
+
+function detectTemporalQuery(message) {
+  const msg = message.toLowerCase();
+  
+  // Pattern 1: "day X" or "workout X" (ID reference)
+  const idMatch = msg.match(/(?:day|workout|session)\s+(\d+)/);
+  if (idMatch) {
+    return { type: 'id', value: parseInt(idMatch[1]) };
+  }
+  
+  // Pattern 2: "last X days/weeks/months"
+  const lastMatch = msg.match(/last\s+(\d+)\s+(day|week|month)s?/);
+  if (lastMatch) {
+    const count = parseInt(lastMatch[1]);
+    const unit = lastMatch[2];
+    return { type: 'relative', count, unit };
+  }
+  
+  // Pattern 3: "last week", "last month", "this week", "this month"
+  if (msg.match(/last\s+week/)) return { type: 'relative', count: 1, unit: 'week' };
+  if (msg.match(/last\s+month/)) return { type: 'relative', count: 1, unit: 'month' };
+  if (msg.match(/this\s+week/)) return { type: 'relative', count: 0, unit: 'week' };
+  if (msg.match(/this\s+month/)) return { type: 'relative', count: 0, unit: 'month' };
+  
+  // Pattern 4: Specific date (YYYY-MM-DD or DD-MM-YYYY or similar)
+  const dateMatch = msg.match(/(\d{4}-\d{2}-\d{2}|\d{2}[-/]\d{2}[-/]\d{4})/);
+  if (dateMatch) {
+    return { type: 'date', value: dateMatch[1] };
+  }
+  
+  return null;
+}
+
+function filterWorkoutsByQuery(query) {
+  if (!query) return null;
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  if (query.type === 'id') {
+    // Find workout by ID
+    const workout = workouts.find(w => w.id === query.value);
+    if (!workout) return { error: `No workout found with ID ${query.value}` };
+    return { workouts: [workout], description: `Workout ID ${query.value}` };
+  }
+  
+  if (query.type === 'relative') {
+    const { count, unit } = query;
+    let cutoffDate = new Date(today);
+    
+    if (unit === 'day') {
+      cutoffDate.setDate(cutoffDate.getDate() - count);
+    } else if (unit === 'week') {
+      cutoffDate.setDate(cutoffDate.getDate() - (count * 7));
+    } else if (unit === 'month') {
+      cutoffDate.setMonth(cutoffDate.getMonth() - count);
+    }
+    
+    const filtered = workouts.filter(w => {
+      const wDate = new Date(w.date);
+      return wDate >= cutoffDate;
+    });
+    
+    const desc = count === 0 ? `This ${unit}` : `Last ${count} ${unit}${count > 1 ? 's' : ''}`;
+    return { workouts: filtered, description: desc };
+  }
+  
+  if (query.type === 'date') {
+    const targetDate = query.value;
+    const filtered = workouts.filter(w => w.date === targetDate);
+    return { workouts: filtered, description: `Date: ${targetDate}` };
+  }
+  
+  return null;
+}
+
+function formatWorkoutsForContext(workouts) {
+  if (!workouts || workouts.length === 0) return '';
+  
+  const formatted = workouts.map(w => {
+    const exList = (w.exercises || []).map(ex => {
+      const name = ex.name || ex.name_raw || '';
+      if (!name) return null;
+      const sets = (ex.sets || []).map(s => `${s.kg||0}kg×${s.reps||0}`).join(', ');
+      return `  • ${name}: ${sets}`;
+    }).filter(Boolean).join('\n');
+    
+    return `
+═══════════════════════════════
+WORKOUT ID: ${w.id}
+Date: ${w.date}
+Muscles: ${(w.muscles || []).join(', ')}
+Duration: ${w.duration || 0}min
+Warmup: ${w.warmup || 0}min
+Exercises:
+${exList || '  (none)'}`;
+  }).join('\n');
+  
+  return formatted;
+}
+
 async function callGroq(userMessage) {
   const apiKey = await loadGroqKeyFromSupabase();
   if (!apiKey) throw new Error('No API key found. Please save your API key first.');
 
-  coachMessages.push({ role: 'user', content: userMessage });
+  // Detect temporal queries and append relevant workout data
+  let enhancedMessage = userMessage;
+  const temporalQuery = detectTemporalQuery(userMessage);
+  
+  if (temporalQuery) {
+    const filtered = filterWorkoutsByQuery(temporalQuery);
+    
+    if (filtered && filtered.error) {
+      // If no workout found, let the AI know
+      enhancedMessage += `\n\n[SYSTEM NOTE: ${filtered.error}]`;
+    } else if (filtered && filtered.workouts && filtered.workouts.length > 0) {
+      // Append filtered workout data to the message
+      const workoutData = formatWorkoutsForContext(filtered.workouts);
+      enhancedMessage += `\n\n[REQUESTED DATA: ${filtered.description}]\n${workoutData}\n[END OF REQUESTED DATA]`;
+    }
+  }
+
+  coachMessages.push({ role: 'user', content: enhancedMessage });
 
   const messages = [
     { role: 'system', content: buildSystemPrompt() },
