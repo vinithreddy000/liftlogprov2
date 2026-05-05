@@ -1169,7 +1169,7 @@ input::placeholder { color: var(--text3); }
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">
       <div class="warmup-row">
         <label>Warmup</label>
-        <input type="number" id="warmup-min" placeholder="min" min="0" max="60">
+        <input type="number" id="warmup-min" placeholder="min" min="0" max="60" oninput="saveDraft()">
       </div>
     </div>
 
@@ -1193,7 +1193,7 @@ input::placeholder { color: var(--text3); }
     </div>
 
     <div class="section-label">Notes</div>
-    <textarea class="notes-input" id="session-notes" placeholder="How did it feel? Anything to remember..."></textarea>
+    <textarea class="notes-input" id="session-notes" placeholder="How did it feel? Anything to remember..." oninput="saveDraft()"></textarea>
 
     <div class="save-row">
       <button class="btn btn-ghost" onclick="clearLog()">CLEAR</button>
@@ -1802,23 +1802,27 @@ async function dbDelete(workout_date, created_at) {
 
 // ── DRAFT AUTO-SAVE ───────────────────────────────────────────────────────
 const DRAFT_KEY = 'liftlog_draft';
+let _draftTimer = null;
 
 function saveDraft() {
-  try {
-    const draft = {
-      currentExercises: JSON.parse(JSON.stringify(currentExercises)),
-      selectedMuscles: [...selectedMuscles],
-      inTime,
-      outTime,
-      warmup: document.getElementById('warmup-min')?.value || '',
-      notes: document.getElementById('session-notes')?.value || '',
-      savedAt: Date.now()
-    };
-    // Only save if there's something meaningful
-    if (draft.currentExercises.length > 0 || draft.selectedMuscles.length > 0 || draft.inTime) {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-    }
-  } catch(e) {}
+  // Debounce — wait 800ms after last change before writing
+  clearTimeout(_draftTimer);
+  _draftTimer = setTimeout(() => {
+    try {
+      const draft = {
+        currentExercises: JSON.parse(JSON.stringify(currentExercises)),
+        selectedMuscles: [...selectedMuscles],
+        inTime,
+        outTime,
+        warmup: document.getElementById('warmup-min')?.value || '',
+        notes: document.getElementById('session-notes')?.value || '',
+        savedAt: Date.now()
+      };
+      if (draft.currentExercises.length > 0 || draft.selectedMuscles.length > 0 || draft.inTime) {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      }
+    } catch(e) {}
+  }, 800);
 }
 
 function clearDraft(delay = 0) {
@@ -2092,6 +2096,7 @@ function confirmTime() {
     btn.textContent = 'Set ✓'; btn.classList.add('set'); btn.onclick = null;
   }
   updateDurationBadge();
+  saveDraft();
 }
 function closeTimeModal() {
   clearInterval(clockInterval);
@@ -2575,10 +2580,10 @@ function addExercise(forceName) {
   setTimeout(() => { const c = document.querySelectorAll('.ex-card'); if(c.length) c[c.length-1].scrollIntoView({behavior:'smooth',block:'nearest'}); }, 50);
 }
 
-function removeExercise(i) { currentExercises.splice(i,1); renderExercises(); }
-function addSet(ei) { currentExercises[ei].sets.push({kg:'',reps:''}); renderExercises(); }
-function removeSet(ei, si) { if (getSets(currentExercises[ei]).length > 1) { currentExercises[ei].sets.splice(si,1); renderExercises(); } }
-function updateCardio(ei, val) { currentExercises[ei].duration_min = parseInt(val) || 0; }
+function removeExercise(i) { currentExercises.splice(i,1); renderExercises(); saveDraft(); }
+function addSet(ei) { currentExercises[ei].sets.push({kg:'',reps:''}); renderExercises(); saveDraft(); }
+function removeSet(ei, si) { if (getSets(currentExercises[ei]).length > 1) { currentExercises[ei].sets.splice(si,1); renderExercises(); saveDraft(); } }
+function updateCardio(ei, val) { currentExercises[ei].duration_min = parseInt(val) || 0; saveDraft(); }
 function updateSet(ei, si, field, val) {
   currentExercises[ei].sets[si][field] = parseFloat(val) || 0;
 
@@ -2612,6 +2617,7 @@ function updateSet(ei, si, field, val) {
   } else if (!newPRLabel && existingPR) {
     existingPR.remove();
   }
+  saveDraft();
 }
 
 // ── SWAP MODAL ─────────────────────────────────────────────────────────────
