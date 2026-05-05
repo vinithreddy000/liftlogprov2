@@ -1397,10 +1397,10 @@ WITH CHECK (auth.uid() = user_id);</pre>
 
       <!-- Quick Prompts -->
       <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px;">
-        <button class="quick-prompt-btn" onclick="sendQuickPrompt('What should I train next?')">📋 What\'s next?</button>
-        <button class="quick-prompt-btn" onclick="sendQuickPrompt('Give me this week summary')">📊 Weekly summary</button>
-        <button class="quick-prompt-btn" onclick="sendQuickPrompt('Any muscle imbalances?')">⚖️ Imbalances</button>
-        <button class="quick-prompt-btn" onclick="sendQuickPrompt('Am I overtraining?')">⚠️ Recovery check</button>
+        <button class="quick-prompt-btn" onclick="sendQuickPrompt('Compare latest vs previous same muscle and show progress')">📈 Progress</button>
+        <button class="quick-prompt-btn" onclick="sendQuickPrompt('What should I train next based on recovery and recent workouts?')">📋 Next</button>
+        <button class="quick-prompt-btn" onclick="sendQuickPrompt('Any muscle lagging based on recent workouts?')">📉 Weak</button>
+        <button class="quick-prompt-btn" onclick="sendQuickPrompt('Am I overtraining or is volume optimal this week?')">⚠️ Recovery</button>
       </div>
 
       <!-- Chat Messages -->
@@ -3733,8 +3733,11 @@ async function sendAutoIntro() {
   
   try {
     const intro = await callGroq(
-      "I just opened the app. Give me a sharp 3-4 line overview of where I'm at — "
-      + "highlight my streak, any muscle imbalances, and one thing to focus on this week."
+      "I just opened the app. Analyze my CURRENT WEEK workouts only. " +
+      "Give a structured review using my latest workout and compare it with the [PREV SAME MUSCLE] session. " +
+      "Include: strength changes (weights/reps), volume differences, and clear progress or not. " +
+      "Also check this week's training balance (which muscles over/under trained). " +
+      "End with 2 precise actions for my next workout."
     );
     removeLoading();
     addChatMessage('assistant', intro);
