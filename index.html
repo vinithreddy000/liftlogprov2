@@ -224,11 +224,11 @@ body {
 .muscle-chip[data-m="Abs"].selected { background: rgba(255,221,0,0.1); border-color: rgba(255,221,0,0.4); color: var(--abs-c); }
 .muscle-chip[data-m="Cardio"].selected { background: rgba(0,229,255,0.1); border-color: rgba(0,229,255,0.4); color: var(--cardio-c); }
 /* Training day types */
-.muscle-chip[data-m="Push"].selected { background: rgba(255,82,119,0.15); border-color: rgba(255,82,119,0.6); color: #ff5277; }
-.muscle-chip[data-m="Pull"].selected { background: rgba(0,180,255,0.15); border-color: rgba(0,180,255,0.6); color: #00b4ff; }
-.muscle-chip[data-m="Lower Body"].selected { background: rgba(255,107,53,0.15); border-color: rgba(255,107,53,0.5); color: var(--legs-c); }
-.muscle-chip[data-m="Upper Body"].selected { background: rgba(180,122,255,0.15); border-color: rgba(180,122,255,0.5); color: var(--purple); }
-.muscle-chip[data-m="Rest Day"].selected { background: rgba(122,136,150,0.12); border-color: rgba(122,136,150,0.4); color: var(--text2); border-style: solid; }
+.muscle-chip[data-m="Push"].selected { background: rgba(255,82,119,0.15); border-color: rgba(255,82,119,0.8); border-style: solid; color: #ff5277; box-shadow: 0 0 10px rgba(255,82,119,0.25); }
+.muscle-chip[data-m="Pull"].selected { background: rgba(0,180,255,0.15); border-color: rgba(0,180,255,0.8); border-style: solid; color: #00b4ff; box-shadow: 0 0 10px rgba(0,180,255,0.25); }
+.muscle-chip[data-m="Lower Body"].selected { background: rgba(255,107,53,0.15); border-color: rgba(255,107,53,0.8); border-style: solid; color: var(--legs-c); box-shadow: 0 0 10px rgba(255,107,53,0.25); }
+.muscle-chip[data-m="Upper Body"].selected { background: rgba(180,122,255,0.15); border-color: rgba(180,122,255,0.8); border-style: solid; color: var(--purple); box-shadow: 0 0 10px rgba(180,122,255,0.25); }
+.muscle-chip[data-m="Rest Day"].selected { background: rgba(122,136,150,0.22); border-color: #7a8896; border-style: solid; color: #c8d4de; box-shadow: 0 0 10px rgba(122,136,150,0.25); }
 /* Training day chip separator */
 .muscle-chip.day-type-chip { border-style: dashed; }
 .muscle-chip.day-type-chip.selected { border-style: solid; }
@@ -2699,9 +2699,12 @@ async function saveWorkout() {
 
   const now = new Date();
   const finalOut = outTime || now.toTimeString().slice(0,5);
-  const [ih,im] = inTime.split(':').map(Number);
-  const [oh,om] = finalOut.split(':').map(Number);
-  const duration = Math.max(0, (oh*60+om)-(ih*60+im));
+  let duration = 0;
+  if (inTime) {
+    const [ih,im] = inTime.split(':').map(Number);
+    const [oh,om] = finalOut.split(':').map(Number);
+    duration = Math.max(0, (oh*60+om)-(ih*60+im));
+  }
   const warmup = parseInt(document.getElementById('warmup-min').value)||0;
   const notes = document.getElementById('session-notes').value;
 
