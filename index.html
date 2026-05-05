@@ -237,9 +237,9 @@ body {
 .ex-muscle-tag.Pull { background: rgba(0,180,255,0.15); border: 1px solid rgba(0,180,255,0.4); color: #00b4ff; }
 .muscle-tag.Push { background: rgba(255,82,119,0.15); border: 1px solid rgba(255,82,119,0.3); color: #ff5277; }
 .muscle-tag.Pull { background: rgba(0,180,255,0.15); border: 1px solid rgba(0,180,255,0.3); color: #00b4ff; }
-.muscle-tag.Lower\ Body { background: rgba(255,107,53,0.15); border: 1px solid rgba(255,107,53,0.3); color: var(--legs-c); }
-.muscle-tag.Upper\ Body { background: rgba(180,122,255,0.15); border: 1px solid rgba(180,122,255,0.3); color: var(--purple); }
-.muscle-tag.Rest\ Day { background: rgba(122,136,150,0.12); border: 1px solid rgba(122,136,150,0.25); color: var(--text2); }
+.muscle-tag.Lower-Body { background: rgba(255,107,53,0.15); border: 1px solid rgba(255,107,53,0.3); color: var(--legs-c); }
+.muscle-tag.Upper-Body { background: rgba(180,122,255,0.15); border: 1px solid rgba(180,122,255,0.3); color: var(--purple); }
+.muscle-tag.Rest-Day { background: rgba(122,136,150,0.12); border: 1px solid rgba(122,136,150,0.25); color: var(--text2); }
 
 /* ── SUGGESTIONS MODAL ─────────────────────────────────────── */
 .suggest-ex-item {
@@ -1197,7 +1197,7 @@ input::placeholder { color: var(--text3); }
 
     <div class="save-row">
       <button class="btn btn-ghost" onclick="clearLog()">CLEAR</button>
-      <button class="btn btn-primary" onclick="saveWorkout()">SAVE SESSION</button>
+      <button class="btn btn-primary" id="save-btn" onclick="saveWorkout()">SAVE SESSION</button>
     </div>
   </div>
 
@@ -1875,6 +1875,7 @@ function restoreDraft() {
 // ── DATA HELPERS ─────────────────────────────────────────────────────────────
 function normaliseWorkout(w) {
   if (!w) return w;
+  if (!w.muscles) w.muscles = [];
   w.exercises = (w.exercises || []).map(ex => {
     if (!ex.name && ex.name_raw) ex.name = ex.name_raw;
     if (!ex.sets) ex.sets = [];
@@ -1937,6 +1938,7 @@ async function initApp() {
   updateStreak();
   renderMuscleGrid();
   renderExercises();
+  restoreDraft();
 }
 
 // Boot: check if session exists
@@ -2211,11 +2213,13 @@ function openSuggestModal(dayType) {
   });
 
   let html = '';
+  let exIdx = 0;
   Object.entries(byMuscle).forEach(([muscle, exs]) => {
     const color = MUSCLE_COLORS_MAP[muscle] || 'var(--text2)';
     html += `<div class="suggest-group-label" style="color:${color}">${muscle}</div>`;
     exs.forEach(ex => {
-      html += `<div class="suggest-ex-item" id="sug-${escapeAttr(ex.name)}" onclick="toggleSuggestEx('${escapeAttr(ex.name)}', '${ex.muscle}')">
+      const idx = exIdx++;
+      html += `<div class="suggest-ex-item" id="sug-${idx}" onclick="toggleSuggestEx(${idx}, '${escapeAttr(ex.name)}', '${ex.muscle}')">
         <span class="suggest-ex-name">${ex.name}</span>
         <span class="suggest-ex-muscle ex-muscle-tag ${muscle}">${muscle.toUpperCase()}</span>
         <span class="suggest-check">✓</span>
@@ -2229,9 +2233,8 @@ function openSuggestModal(dayType) {
   document.getElementById('suggest-modal').classList.remove('hidden');
 }
 
-function toggleSuggestEx(name, muscle) {
-  const id = 'sug-' + name;
-  const el = document.getElementById(id);
+function toggleSuggestEx(idx, name, muscle) {
+  const el = document.getElementById('sug-' + idx);
   if (!el) return;
   if (suggestSelectedExercises.has(name)) {
     suggestSelectedExercises.delete(name);
@@ -2277,7 +2280,7 @@ function closeSuggestModal() {
 
 function checkLastWorkoutBanner() {
   const banner = document.getElementById('last-workout-banner');
-  if (selectedMuscles.length === 0) { banner.style.display = 'none'; return; }
+  if (selectedMuscles.length === 0 || selectedMuscles.includes('Rest Day')) { banner.style.display = 'none'; return; }
 
   const COMMON_EXERCISES = new Set([
     'cardio','cycling','walking','treadmill','incline walking','running',
@@ -2821,20 +2824,23 @@ function renderHistory() {
           const kg = parseFloat(s.kg)||parseFloat(s.weight)||0;
           return b + (kg * (s.reps||0));
         }, 0), 0);
+        const isRest = w.muscles.includes('Rest Day') && w.exercises.length === 0;
         return `<div class="workout-item" onclick="viewWorkout(${w.id})">
           <div class="workout-item-header">
             <div class="workout-date">${formatDate(w.date)}</div>
             <div style="display:flex;align-items:center;gap:6px">
               <div style="font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:900;letter-spacing:1.5px;color:var(--accent);background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.25);border-radius:4px;padding:1px 7px">DAY ${w.id}</div>
-              <div class="workout-duration">${w.duration}min</div>
+              <div class="workout-duration">${w.duration ? w.duration+'min' : isRest ? '🛌 Rest' : '—'}</div>
             </div>
           </div>
-          <div class="workout-muscles">${w.muscles.map(m=>`<span class="muscle-tag ${m}">${m.toUpperCase()}</span>`).join('')}</div>
-          <div class="workout-stats">
-            <div class="stat-mini"><span>${w.exercises.length}</span> exercises</div>
-            <div class="stat-mini"><span>${totalSets}</span> sets</div>
-            <div class="stat-mini"><span>${Math.round(totalVol).toLocaleString()}</span> kg vol</div>
-            ${w.inTime ? `<div class="stat-mini"><span>${w.inTime}–${w.outTime}</span></div>` : ''}
+          <div class="workout-muscles">${w.muscles.map(m=>`<span class="muscle-tag ${m.replace(/ /g,'-')}">${m.toUpperCase()}</span>`).join('')}</div>
+            ${isRest
+              ? `<div class="stat-mini" style="color:var(--text2)">Recovery day — no exercises logged</div>`
+              : `<div class="stat-mini"><span>${w.exercises.length}</span> exercises</div>
+                 <div class="stat-mini"><span>${totalSets}</span> sets</div>
+                 <div class="stat-mini"><span>${Math.round(totalVol).toLocaleString()}</span> kg vol</div>
+                 ${w.inTime ? `<div class="stat-mini"><span>${w.inTime}–${w.outTime}</span></div>` : ''}`
+            }
           </div>
         </div>`;
       }).join('')}`;
@@ -2854,7 +2860,7 @@ function renderWorkoutDetail(w) {
         <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:900;letter-spacing:2px;color:var(--accent);background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);border-radius:5px;padding:2px 10px">DAY ${w.id}</div>
       </div>
       <div style="font-size:11px;color:var(--text2)">${w.inTime} → ${w.outTime} · <span style="color:var(--accent);font-weight:700">${w.duration} min</span>${w.warmup?' · '+w.warmup+'min warmup':''}</div>
-      <div class="workout-muscles" style="margin-top:8px">${w.muscles.map(m=>`<span class="muscle-tag ${m}">${m.toUpperCase()}</span>`).join('')}</div>
+      <div class="workout-muscles" style="margin-top:8px">${w.muscles.map(m=>`<span class="muscle-tag ${m.replace(/ /g,'-')}">${m.toUpperCase()}</span>`).join('')}</div>
     </div>
     ${w.exercises.map(ex => {
       const musTag = (ex.muscle) ? `<span class="ex-muscle-tag ${ex.muscle}">${ex.muscle.toUpperCase()}</span>` : '';
