@@ -3227,10 +3227,18 @@ let coachStats = null;
 
 // ── Initialize Coach ───────────────────────────────────────────────────────
 async function initCoach() {
+  console.log('[Coach] === INIT COACH CALLED ===');
+  console.log('[Coach] currentSession:', currentSession ? 'EXISTS' : 'NULL');
+  console.log('[Coach] currentSession.user:', currentSession?.user ? 'EXISTS' : 'NULL');
+  
   // Try to load API key from Supabase
   try {
+    console.log('[Coach] Calling loadGroqKeyFromSupabase...');
     const key = await loadGroqKeyFromSupabase();
+    console.log('[Coach] Key loaded:', key ? 'YES (length: ' + key.length + ')' : 'NO (null/undefined)');
+    
     if (key) {
+      console.log('[Coach] ✅ API key found! Showing chat interface.');
       document.getElementById('groq-key-setup').style.display = 'none';
       document.getElementById('coach-chat-container').style.display = 'block';
       analyzeWorkouts();
@@ -3238,14 +3246,16 @@ async function initCoach() {
         sendAutoIntro();
       }
     } else {
+      console.log('[Coach] ⚠️ No API key found. Showing setup form.');
       document.getElementById('groq-key-setup').style.display = 'block';
       document.getElementById('coach-chat-container').style.display = 'none';
     }
   } catch (err) {
-    console.error('Error loading API key:', err);
+    console.error('[Coach] ❌ Error loading API key:', err);
     document.getElementById('groq-key-setup').style.display = 'block';
     document.getElementById('coach-chat-container').style.display = 'none';
   }
+}
 }
 
 async function saveGroqKey() {
@@ -3303,30 +3313,35 @@ async function saveGroqKeyToSupabase(apiKey) {
 }
 
 async function loadGroqKeyFromSupabase() {
+  console.log('[loadGroqKey] Function called');
+  
   if (!currentSession || !currentSession.user) {
+    console.log('[loadGroqKey] ❌ No session or user - returning null');
     return null;
   }
   
   const userId = currentSession.user.id;
+  console.log('[loadGroqKey] User ID:', userId);
   
   try {
+    console.log('[loadGroqKey] Fetching from DB...');
     const res = await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId + '&select=groq_api_key');
     const data = await res.json();
+    console.log('[loadGroqKey] Response data:', data);
     
     if (data && data.length > 0) {
+      console.log('[loadGroqKey] ✅ Found API key in database');
       return data[0].groq_api_key;
     }
     
+    console.log('[loadGroqKey] ⚠️ No rows returned from database');
     return null;
   } catch (err) {
     // Table might not exist yet or other DB error
-    console.warn('Could not load API key from Supabase:', err.message);
+    console.warn('[loadGroqKey] ❌ Error:', err.message);
     return null;
   }
 }
-
-async function deleteGroqKeyFromSupabase() {
-  if (!currentSession || !currentSession.user) {
     throw new Error('Not logged in');
   }
   
