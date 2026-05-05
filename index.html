@@ -3494,23 +3494,28 @@ function analyzeWorkouts() {
     });
   });
 
-  // Last 5 sessions
-  const last5 = workouts.slice(0, 5).map(w => {
+  // Last 7 days sessions (default context window)
+  const cutoff7d = new Date();
+  cutoff7d.setDate(cutoff7d.getDate() - 7);
+  cutoff7d.setHours(0,0,0,0);
+  const last7dWorkouts = workouts.filter(w => new Date(w.date) >= cutoff7d);
+  const recentSessions = (last7dWorkouts.length > 0 ? last7dWorkouts : workouts.slice(0, 5)).map(w => {
     const exList = (w.exercises || []).map(ex => {
       const name = ex.name || ex.name_raw || '';
       if (!name) return null;
       const sets = (ex.sets || []).map(s => `${s.kg||0}kg×${s.reps||0}`).join(', ');
       return `${name}: ${sets}`;
     }).filter(Boolean);
-    return `${w.date} | ${(w.muscles||[]).join(', ')} | ${w.duration||0}min\n  ${exList.join('\n  ')}`;
+    return `ID:${w.id} ${w.date} | ${(w.muscles||[]).join(',')} | ${w.duration||0}min\n  ${exList.join('\n  ')}`;
   });
 
   coachStats = {
     total_sessions: workouts.length,
-    date_range: dates.length > 0 ? `${dates[0]} → ${dates[dates.length-1]}` : 'N/A',
-    muscle_frequency: Object.entries(muscleFreq).sort((a,b) => b[1] - a[1]).map(([m,c]) => `${m}: ${c}x`).join(', '),
+    date_range: dates.length > 0 ? `${dates[0]} to ${dates[dates.length-1]}` : 'N/A',
+    muscle_frequency: Object.entries(muscleFreq).sort((a,b) => b[1] - a[1]).map(([m,c]) => `${m}:${c}`).join(', '),
     personal_records: prs.slice(0, 20).join('\n  '),
-    last_5_sessions: last5.join('\n\n'),
+    recent_sessions: recentSessions.join('\n\n'),
+    recent_label: last7dWorkouts.length > 0 ? 'Last 7 days' : 'Last 5 sessions',
     most_trained: Object.keys(muscleFreq).length > 0 ? Object.keys(muscleFreq).reduce((a,b) => muscleFreq[a] > muscleFreq[b] ? a : b) : 'None',
     least_trained: Object.keys(muscleFreq).length > 0 ? Object.keys(muscleFreq).reduce((a,b) => muscleFreq[a] < muscleFreq[b] ? a : b) : 'None'
   };
@@ -3520,105 +3525,31 @@ function analyzeWorkouts() {
 
 function buildSystemPrompt() {
   if (!coachStats) return '';
-  
-  return `You are Coach Rex — a legendary personal trainer with over 100 years of combined experience.
-You have trained Olympic athletes, powerlifters, bodybuilders, and everyday gym-goers.
-You know everything about strength training, hypertrophy, periodization, nutrition, recovery, and injury prevention.
-You speak with authority but warmth — direct, no-nonsense, deeply knowledgeable.
+  return `You are Coach Rex — elite personal trainer. Direct, data-driven, warm.
 
-═══════════════════════════════════════════
-ATHLETE'S COMPLETE WORKOUT PROFILE
-═══════════════════════════════════════════
+ATHLETE: ${coachStats.total_sessions} sessions | ${coachStats.date_range}
+Most: ${coachStats.most_trained} | Least: ${coachStats.least_trained}
+Freq: ${coachStats.muscle_frequency}
 
-OVERVIEW
-  Total sessions: ${coachStats.total_sessions}
-  Date range: ${coachStats.date_range}
-  Most trained: ${coachStats.most_trained}
-  Least trained: ${coachStats.least_trained}
+PRs: ${coachStats.personal_records}
 
-MUSCLE FREQUENCY
-  ${coachStats.muscle_frequency}
+${coachStats.recent_label.toUpperCase()}:
+${coachStats.recent_sessions}
 
-PERSONAL RECORDS (heaviest weight × reps)
-  ${coachStats.personal_records}
+RULES:
+- Simple question → 1-3 sentence direct answer only
+- Review/analysis → structured format below
+- Cite real lifts/dates/weights; flag imbalances; suggest next session
 
-LAST 5 SESSIONS
-${coachStats.last_5_sessions}
-
-═══════════════════════════════════════════
-HOW TO COACH:
-- Reference specific lifts, weights, dates from the data
-- Celebrate PRs and progress
-- Flag imbalances
-- Suggest next session based on recent training
-- Give nutrition and recovery advice when relevant
-- Use emojis sparingly
-
-═══════════════════════════════════════════
-RESPONSE FORMAT RULES:
-═══════════════════════════════════════════
-
-**FOR SIMPLE QUESTIONS** (e.g., "what are my last 2 leg workout dates?", "how many PRs?", "when did I last train chest?"):
-- Give a DIRECT, SHORT answer (1-3 sentences)
-- Just answer what was asked, no extra analysis
-- Example: "Your last 2 leg workouts were on 2026-04-30 and 2026-04-22."
-
-**FOR REVIEWS/ANALYSIS/FEEDBACK** (e.g., "review day 40", "analyze last week", "give me feedback"):
-Use this structured format:
-
-**Overall Rating: X/10**
-
+STRUCTURED FORMAT (analysis only):
+**Rating: X/10**
 ## 📊 OBSERVATION
-- Your analysis of training patterns, volume, frequency
-- Compare with last trained same muscle group
-- Check if progressed in reps or kgs
-
 ## 💪 PROGRESS
-- Celebrate PRs, improvements, consistency
-- Highlight what's working well
-
-## ⚠️ IMPROVEMENTS NEEDED
-- Point out imbalances, missing muscle groups
-- Recovery issues, form concerns
-
+## ⚠️ IMPROVEMENTS
 ## 🎯 SUGGESTIONS
-- Concrete next steps, workout recommendations
-- Programming advice, exercise variations
+## 🍽️ NUTRITION *(if relevant)*
 
-## 🍽️ NUTRITION & RECOVERY
-*(Only include if relevant)*
-- Diet tips, sleep recommendations
-- Supplements, rest day advice
-
-═══════════════════════════════════════════
-MARKDOWN FORMATTING:
-═══════════════════════════════════════════
-
-ALWAYS use proper markdown:
-- **Bold** for emphasis and section headers
-- ## for main section headers
-- ### for subheaders
-- * for bullet points
-- Use blank lines between paragraphs
-- Use line breaks for readability
-
-GOOD formatting example:
-**Overall Rating: 8/10**
-
-## 📊 OBSERVATION
-You trained legs on **2026-04-30** with great intensity:
-* Hack Squat: 30kg × 12 reps (NEW PR!)
-* Duration: 104 minutes
-* Volume was excellent
-
-Your previous leg session was **2026-04-22**, giving you 8 days of recovery.
-
-## 💪 PROGRESS
-* **New PR in Hack Squat**: 30kg × 12 reps
-* Consistent training frequency
-* Good exercise variety
-
-═══════════════════════════════════════════`;
+Use **bold**, ## headers, * bullets. Injected [REQUESTED DATA] in user message overrides profile context.`;
 }
 
 // ── Chat Functions ─────────────────────────────────────────────────────────
@@ -3668,85 +3599,119 @@ async function sendAutoIntro() {
 
 function detectTemporalQuery(message) {
   const msg = message.toLowerCase();
-  
-  // Pattern 1: "day X" or "workout X" (ID reference)
-  const idMatch = msg.match(/(?:day|workout|session)\s+(\d+)/);
-  if (idMatch) {
-    return { type: 'id', value: parseInt(idMatch[1]) };
+
+  // Helper: normalize DD-MM-YYYY or YYYY-MM-DD → YYYY-MM-DD
+  function normDate(s) {
+    if (/^\d{2}-\d{2}-\d{4}$/.test(s)) {
+      const p = s.split('-'); return `${p[2]}-${p[1]}-${p[0]}`;
+    }
+    return s;
   }
-  
+
+  // Pattern 0: Compare two IDs — "compare day 20 and day 25" / "day 20 vs day 25"
+  const cmpId = msg.match(/(?:compare|vs\.?|versus).*?(?:day|workout|session)\s+(\d+).*?(?:and|vs\.?|versus|&).*?(?:day|workout|session)\s+(\d+)/);
+  if (!cmpId) {
+    const cmpId2 = msg.match(/(?:day|workout|session)\s+(\d+).*?(?:vs\.?|versus|and|&|compare).*?(?:day|workout|session)\s+(\d+)/);
+    if (cmpId2) return { type: 'compare_ids', ids: [parseInt(cmpId2[1]), parseInt(cmpId2[2])] };
+  } else {
+    return { type: 'compare_ids', ids: [parseInt(cmpId[1]), parseInt(cmpId[2])] };
+  }
+
+  // Pattern 0b: Compare two dates — "compare 20-04-2026 and 25-04-2026"
+  const allDates = [...msg.matchAll(/(\d{2}-\d{2}-\d{4}|\d{4}-\d{2}-\d{2})/g)].map(m => normDate(m[1]));
+  if (allDates.length >= 2 && /compare|vs|versus/.test(msg)) {
+    return { type: 'compare_dates', dates: [allDates[0], allDates[1]] };
+  }
+
+  // Pattern 0c: Top N records — "top 5 workouts", "top 3 sessions by volume"
+  const topMatch = msg.match(/top\s+(\d+)/);
+  if (topMatch) {
+    const lastNMatch = msg.match(/last\s+(\d+)\s+(day|week|month)s?/);
+    const nDays = lastNMatch
+      ? (lastNMatch[2]==='day' ? parseInt(lastNMatch[1]) : lastNMatch[2]==='week' ? parseInt(lastNMatch[1])*7 : parseInt(lastNMatch[1])*30)
+      : 7;
+    const byVol = /volume|heaviest|weight/.test(msg) ? 'volume' : /duration|longest|time/.test(msg) ? 'duration' : 'volume';
+    return { type: 'topN', n: parseInt(topMatch[1]), days: nDays, sortBy: byVol };
+  }
+
+  // Pattern 1: "day X" or "workout X" (ID reference) — single
+  const idMatch = msg.match(/(?:day|workout|session)\s+(\d+)/);
+  if (idMatch) return { type: 'id', value: parseInt(idMatch[1]) };
+
   // Pattern 2: "last X days/weeks/months"
   const lastMatch = msg.match(/last\s+(\d+)\s+(day|week|month)s?/);
-  if (lastMatch) {
-    const count = parseInt(lastMatch[1]);
-    const unit = lastMatch[2];
-    return { type: 'relative', count, unit };
-  }
-  
+  if (lastMatch) return { type: 'relative', count: parseInt(lastMatch[1]), unit: lastMatch[2] };
+
   // Pattern 3: "last week", "last month", "this week", "this month"
-  if (msg.match(/last\s+week/)) return { type: 'relative', count: 1, unit: 'week' };
-  if (msg.match(/last\s+month/)) return { type: 'relative', count: 1, unit: 'month' };
-  if (msg.match(/this\s+week/)) return { type: 'relative', count: 0, unit: 'week' };
-  if (msg.match(/this\s+month/)) return { type: 'relative', count: 0, unit: 'month' };
-  
-  // Pattern 4: Specific date (DD-MM-YYYY or YYYY-MM-DD)
-  const dateMatch = msg.match(/(\d{2}-\d{2}-\d{4}|\d{4}-\d{2}-\d{2})/);
-  if (dateMatch) {
-    let dateStr = dateMatch[1];
-    // Convert DD-MM-YYYY to YYYY-MM-DD
-    if (dateStr.match(/^\d{2}-\d{2}-\d{4}$/)) {
-      const parts = dateStr.split('-');
-      dateStr = `${parts[2]}-${parts[1]}-${parts[0]}`;
-    }
-    return { type: 'date', value: dateStr };
-  }
-  
+  if (/last\s+week/.test(msg)) return { type: 'relative', count: 1, unit: 'week' };
+  if (/last\s+month/.test(msg)) return { type: 'relative', count: 1, unit: 'month' };
+  if (/this\s+week/.test(msg)) return { type: 'relative', count: 0, unit: 'week' };
+  if (/this\s+month/.test(msg)) return { type: 'relative', count: 0, unit: 'month' };
+
+  // Pattern 4: Single specific date
+  if (allDates.length === 1) return { type: 'date', value: allDates[0] };
+  if (allDates.length >= 2) return { type: 'date', value: allDates[0] }; // fallback
+
   return null;
 }
 
 function filterWorkoutsByQuery(query) {
   if (!query) return null;
-  
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  if (query.type === 'compare_ids') {
+    const found = query.ids.map(id => workouts.find(w => w.id === id));
+    const missing = query.ids.filter((id,i) => !found[i]);
+    if (missing.length) return { error: `No workout found with ID(s): ${missing.join(', ')}` };
+    return { workouts: found, description: `Comparing Day ${query.ids[0]} vs Day ${query.ids[1]}`, compare: true };
+  }
+
+  if (query.type === 'compare_dates') {
+    const found = query.dates.map(d => workouts.filter(w => w.date === d));
+    const missing = query.dates.filter((d,i) => found[i].length === 0);
+    if (missing.length) return { error: `No workout found on date(s): ${missing.join(', ')}` };
+    return { workouts: [...found[0], ...found[1]], description: `Comparing ${query.dates[0]} vs ${query.dates[1]}`, compare: true };
+  }
+
+  if (query.type === 'topN') {
+    const cutoff = new Date(today); cutoff.setDate(cutoff.getDate() - query.days);
+    const pool = workouts.filter(w => new Date(w.date) >= cutoff);
+    const scored = pool.map(w => {
+      let score = 0;
+      if (query.sortBy === 'duration') {
+        score = w.duration || 0;
+      } else {
+        // volume: sum of kg × reps across all sets
+        (w.exercises||[]).forEach(ex => (ex.sets||[]).forEach(s => { score += (parseFloat(s.kg)||0) * (parseInt(s.reps)||0); }));
+      }
+      return { w, score };
+    }).sort((a,b) => b.score - a.score).slice(0, query.n);
+    return { workouts: scored.map(x => x.w), description: `Top ${query.n} by ${query.sortBy} (last ${query.days} days)` };
+  }
+
   if (query.type === 'id') {
-    // Find workout by ID
     const workout = workouts.find(w => w.id === query.value);
     if (!workout) return { error: `No workout found with ID ${query.value}` };
     return { workouts: [workout], description: `Workout ID ${query.value} (${workout.date})` };
   }
-  
+
   if (query.type === 'relative') {
     const { count, unit } = query;
     let cutoffDate = new Date(today);
-    
-    if (unit === 'day') {
-      cutoffDate.setDate(cutoffDate.getDate() - count);
-    } else if (unit === 'week') {
-      cutoffDate.setDate(cutoffDate.getDate() - (count * 7));
-    } else if (unit === 'month') {
-      cutoffDate.setMonth(cutoffDate.getMonth() - count);
-    }
-    
-    const filtered = workouts.filter(w => {
-      const wDate = new Date(w.date);
-      return wDate >= cutoffDate;
-    });
-    
+    if (unit === 'day') cutoffDate.setDate(cutoffDate.getDate() - count);
+    else if (unit === 'week') cutoffDate.setDate(cutoffDate.getDate() - count * 7);
+    else if (unit === 'month') cutoffDate.setMonth(cutoffDate.getMonth() - count);
+    const filtered = workouts.filter(w => new Date(w.date) >= cutoffDate);
     const desc = count === 0 ? `This ${unit}` : `Last ${count} ${unit}${count > 1 ? 's' : ''}`;
     return { workouts: filtered, description: `${desc} (${filtered.length} sessions)` };
   }
-  
+
   if (query.type === 'date') {
-    const targetDate = query.value;
-    const filtered = workouts.filter(w => w.date === targetDate);
-    if (filtered.length === 0) {
-      return { error: `No workout found on date ${targetDate}` };
-    }
-    return { workouts: filtered, description: `Date: ${targetDate}` };
+    const filtered = workouts.filter(w => w.date === query.value);
+    if (!filtered.length) return { error: `No workout found on date ${query.value}` };
+    return { workouts: filtered, description: `Date: ${query.value}` };
   }
-  
+
   return null;
 }
 
@@ -3785,14 +3750,14 @@ async function callGroq(userMessage) {
   
   if (temporalQuery) {
     const filtered = filterWorkoutsByQuery(temporalQuery);
-    
     if (filtered && filtered.error) {
-      // If no workout found, let the AI know
       enhancedMessage += `\n\n[SYSTEM NOTE: ${filtered.error}]`;
     } else if (filtered && filtered.workouts && filtered.workouts.length > 0) {
-      // Append filtered workout data to the message
       const workoutData = formatWorkoutsForContext(filtered.workouts);
-      enhancedMessage += `\n\n[REQUESTED DATA: ${filtered.description}]\n${workoutData}\n[END OF REQUESTED DATA]`;
+      const compareNote = filtered.compare
+        ? '\nCompare these workouts side-by-side: volume, exercises, weights, duration, and overall progress between them.'
+        : '';
+      enhancedMessage += `\n\n[REQUESTED DATA: ${filtered.description}]${compareNote}\n${workoutData}\n[END DATA]`;
     }
   }
 
