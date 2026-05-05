@@ -1118,6 +1118,59 @@ input::placeholder { color: var(--text3); }
   font-size: 11px;
   color: var(--text3);
 }
+
+/* ── Markdown Styles in Chat ──────────────────────────────── */
+.chat-message-content {
+  line-height: 1.7;
+}
+.chat-message-content h3.chat-header {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 12px 0 8px 0;
+  letter-spacing: 0.5px;
+}
+.chat-message-content h3.chat-header:first-child {
+  margin-top: 0;
+}
+.chat-message-content h4.chat-subheader {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+  margin: 10px 0 6px 0;
+}
+.chat-message-content strong {
+  color: var(--accent);
+  font-weight: 700;
+}
+.chat-message-content ul {
+  margin: 8px 0;
+  padding-left: 20px;
+  list-style: none;
+}
+.chat-message-content li {
+  position: relative;
+  margin: 4px 0;
+  padding-left: 0;
+}
+.chat-message-content li::before {
+  content: "•";
+  color: var(--accent);
+  font-weight: bold;
+  position: absolute;
+  left: -12px;
+}
+.chat-message-content p {
+  margin: 8px 0;
+  color: var(--text2);
+}
+.chat-message-content p:first-child {
+  margin-top: 0;
+}
+.chat-message-content p:last-child {
+  margin-bottom: 0;
+}
 .chat-loading::after {
   content: '...';
   animation: dots 1.5s infinite;
@@ -3499,30 +3552,72 @@ HOW TO COACH:
 - Flag imbalances
 - Suggest next session based on recent training
 - Give nutrition and recovery advice when relevant
-- Be concise but complete (2-4 paragraphs max)
 - Use emojis sparingly
 
-FORMATTING RULES:
-ALWAYS structure your responses with clear section headers using this format:
+═══════════════════════════════════════════
+RESPONSE FORMAT RULES:
+═══════════════════════════════════════════
 
+**FOR SIMPLE QUESTIONS** (e.g., "what are my last 2 leg workout dates?", "how many PRs?", "when did I last train chest?"):
+- Give a DIRECT, SHORT answer (1-3 sentences)
+- Just answer what was asked, no extra analysis
+- Example: "Your last 2 leg workouts were on 2026-04-30 and 2026-04-22."
 
-overall rating [ your rating for this workout session based on volumen , duration , sets, reps , recovery,etc ]
-📊 OBSERVATION
-[Your analysis of their recent training patterns, volume, frequency , compare the workouts with the last trianed same muscle group and see if we progresed in reps or kgs]
+**FOR REVIEWS/ANALYSIS/FEEDBACK** (e.g., "review day 40", "analyze last week", "give me feedback"):
+Use this structured format:
 
-💪 PROGRESS
-[Celebrate PRs, improvements, consistency]
+**Overall Rating: X/10**
 
-⚠️ IMPROVEMENTS NEEDED
-[Point out imbalances, missing muscle groups, recovery issues]
+## 📊 OBSERVATION
+- Your analysis of training patterns, volume, frequency
+- Compare with last trained same muscle group
+- Check if progressed in reps or kgs
 
-🎯 SUGGESTIONS
-[Concrete next steps, workout recommendations, programming advice]
+## 💪 PROGRESS
+- Celebrate PRs, improvements, consistency
+- Highlight what's working well
 
-🍽️ NUTRITION & RECOVERY (when relevant)
-[Diet tips, sleep, supplements, rest days]
+## ⚠️ IMPROVEMENTS NEEDED
+- Point out imbalances, missing muscle groups
+- Recovery issues, form concerns
 
-Use bullet points within sections for clarity.
+## 🎯 SUGGESTIONS
+- Concrete next steps, workout recommendations
+- Programming advice, exercise variations
+
+## 🍽️ NUTRITION & RECOVERY
+*(Only include if relevant)*
+- Diet tips, sleep recommendations
+- Supplements, rest day advice
+
+═══════════════════════════════════════════
+MARKDOWN FORMATTING:
+═══════════════════════════════════════════
+
+ALWAYS use proper markdown:
+- **Bold** for emphasis and section headers
+- ## for main section headers
+- ### for subheaders
+- * for bullet points
+- Use blank lines between paragraphs
+- Use line breaks for readability
+
+GOOD formatting example:
+**Overall Rating: 8/10**
+
+## 📊 OBSERVATION
+You trained legs on **2026-04-30** with great intensity:
+* Hack Squat: 30kg × 12 reps (NEW PR!)
+* Duration: 104 minutes
+* Volume was excellent
+
+Your previous leg session was **2026-04-22**, giving you 8 days of recovery.
+
+## 💪 PROGRESS
+* **New PR in Hack Squat**: 30kg × 12 reps
+* Consistent training frequency
+* Good exercise variety
+
 ═══════════════════════════════════════════`;
 }
 
@@ -3733,6 +3828,43 @@ async function callGroq(userMessage) {
   
   return reply;
 }
+// Simple markdown parser for coach messages
+function parseMarkdown(text) {
+  if (!text) return '';
+  
+  let html = text;
+  
+  // Escape HTML entities first
+  html = html.replace(/&/g, '&amp;')
+           .replace(/</g, '&lt;')
+           .replace(/>/g, '&gt;');
+  
+  // Headers (## Header)
+  html = html.replace(/^## (.+)$/gm, '<h3 class="chat-header">$1</h3>');
+  html = html.replace(/^### (.+)$/gm, '<h4 class="chat-subheader">$1</h4>');
+  
+  // Bold (**text**)
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  
+  // Bullet points (* item)
+  html = html.replace(/^\* (.+)$/gm, '<li>$1</li>');
+  
+  // Wrap consecutive <li> in <ul>
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, function(match) {
+    return '<ul>' + match + '</ul>';
+  });
+  
+  // Paragraphs (double line breaks)
+  html = html.split('\n\n').map(para => {
+    if (para.trim().startsWith('<h') || para.trim().startsWith('<ul')) {
+      return para;
+    }
+    return para.trim() ? '<p>' + para.replace(/\n/g, '<br>') + '</p>' : '';
+  }).join('\n');
+  
+  return html;
+}
+
 function addChatMessage(role, content) {
   const container = document.getElementById('coach-messages');
   const div = document.createElement('div');
@@ -3743,7 +3875,14 @@ function addChatMessage(role, content) {
   label.textContent = role === 'user' ? 'YOU' : 'COACH REX';
   
   const text = document.createElement('div');
-  text.textContent = content;
+  text.className = 'chat-message-content';
+  
+  // Parse markdown for assistant messages, plain text for user
+  if (role === 'assistant') {
+    text.innerHTML = parseMarkdown(content);
+  } else {
+    text.textContent = content;
+  }
   
   div.appendChild(label);
   div.appendChild(text);
