@@ -2153,8 +2153,8 @@ function showPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
-  const idx = ['log','history','prs','stats'].indexOf(name);
-  document.querySelectorAll('.nav-btn')[idx].classList.add('active');
+  const idx = ['log','history','prs','stats','coach'].indexOf(name);
+  if (idx >= 0) document.querySelectorAll('.nav-btn')[idx].classList.add('active');
   if (name === 'history') renderHistory();
   if (name === 'prs') renderPRs();
   if (name === 'stats') renderStats();
@@ -3330,19 +3330,32 @@ async function saveGroqKeyToSupabase(apiKey) {
   
   const userId = currentSession.user.id;
   
-  // Upsert: insert or update if exists
-  const res = await dbFetch('/rest/v1/user_api_keys', {
-    method: 'POST',
+  // Try PATCH first (update existing row), fall back to POST (insert new row)
+  const patchRes = await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId, {
+    method: 'PATCH',
     headers: {
       ...getAuthHeaders(),
-      'Prefer': 'resolution=merge-duplicates'
+      'Prefer': 'return=minimal'
     },
-    body: JSON.stringify({
-      user_id: userId,
-      groq_api_key: apiKey
-    })
+    body: JSON.stringify({ groq_api_key: apiKey })
   });
-  
+
+  // If PATCH updated 0 rows (no existing row), do a fresh INSERT
+  if (patchRes.status === 404 || patchRes.status === 200 || patchRes.status === 204) {
+    const countHeader = patchRes.headers && patchRes.headers.get ? patchRes.headers.get('content-range') : null;
+    const nothingUpdated = countHeader === '*/0' || patchRes.status === 404;
+    if (nothingUpdated) {
+      await dbFetch('/rest/v1/user_api_keys', {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(),
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify({ user_id: userId, groq_api_key: apiKey })
+      });
+    }
+  }
+
   return true;
 }
 
