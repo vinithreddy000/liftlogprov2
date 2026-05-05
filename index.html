@@ -3826,9 +3826,20 @@ PRIORITY:
 - Coaching > reporting
 
 ---
+INTENT DETECTION (HIGHEST PRIORITY):
+- If the user asks a general question (not about a specific workout, stats, or progress):
+  → Respond in 1–3 sentences ONLY
+  → DO NOT use workout format
+  → DO NOT use emojis or sections
 
-NOTE:
-If user asks a simple question, IGNORE this format and answer in 1–3 sentences.
+- Only use workout analysis format when:
+  → User shares workout data
+  → OR asks for workout/progress analysis
+STRICT RULE:
+- NEVER use workout format for general or technical questions
+- Example:
+  "How many day did i tain in this month?"/"how many tokens are used to answer this qustion" → plain answer
+  NOT formatted output
 
 Use **bold**, ## headers, * bullets. Injected [REQUESTED DATA] in user message overrides profile context.`;
 }
