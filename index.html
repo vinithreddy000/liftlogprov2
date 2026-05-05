@@ -1851,12 +1851,18 @@ function restoreDraft() {
     // Restore time display
     ['in', 'out'].forEach(t => {
       const time = t === 'in' ? inTime : outTime;
+      const el = document.getElementById(t + '-time-display');
+      const btn = document.getElementById(t + '-time-btn');
       if (time) {
-        const el = document.getElementById(t + '-time-display');
         el.textContent = time; el.classList.remove('empty');
         document.getElementById(t + '-time-block').classList.add('has-time');
-        const btn = document.getElementById(t + '-time-btn');
-        btn.textContent = 'Set ✓'; btn.classList.add('set'); btn.onclick = null;
+        btn.textContent = 'Edit'; btn.classList.remove('set');
+        btn.onclick = () => openTimeModal(t);
+      } else {
+        el.textContent = '--:--'; el.classList.add('empty');
+        document.getElementById(t + '-time-block').classList.remove('has-time');
+        btn.textContent = 'Tap to set'; btn.classList.remove('set');
+        btn.onclick = () => openTimeModal(t);
       }
     });
 
@@ -2050,14 +2056,13 @@ function updateStreak() {
 
 // ── TIME ──────────────────────────────────────────────────────────────────
 function openTimeModal(target) {
-  if (target === 'in' && inTime) return;
-  if (target === 'out' && outTime) return;
   timeModalTarget = target;
   const isIn = target === 'in';
   document.getElementById('time-modal-title').textContent = isIn ? 'SET CHECK-IN TIME' : 'SET CHECK-OUT TIME';
   document.getElementById('time-modal').classList.remove('hidden');
-  const now = new Date();
-  const hhmm = now.toTimeString().slice(0,5);
+  // Pre-fill with existing time if set, else current time
+  const existing = isIn ? inTime : outTime;
+  const hhmm = existing || new Date().toTimeString().slice(0,5);
   document.getElementById('time-modal-manual').value = hhmm;
   document.getElementById('time-modal-clock').textContent = hhmm;
   clearInterval(clockInterval);
@@ -2086,14 +2091,16 @@ function confirmTime() {
     el.textContent = val; el.classList.remove('empty');
     document.getElementById('in-time-block').classList.add('has-time');
     const btn = document.getElementById('in-time-btn');
-    btn.textContent = 'Set ✓'; btn.classList.add('set'); btn.onclick = null;
+    btn.textContent = 'Edit'; btn.classList.remove('set');
+    btn.onclick = () => openTimeModal('in');
   } else {
     outTime = val;
     const el = document.getElementById('out-time-display');
     el.textContent = val; el.classList.remove('empty');
     document.getElementById('out-time-block').classList.add('has-time');
     const btn = document.getElementById('out-time-btn');
-    btn.textContent = 'Set ✓'; btn.classList.add('set'); btn.onclick = null;
+    btn.textContent = 'Edit'; btn.classList.remove('set');
+    btn.onclick = () => openTimeModal('out');
   }
   updateDurationBadge();
   saveDraft();
