@@ -1869,7 +1869,12 @@ function restoreDraft() {
     renderMuscleGrid();
     renderExercises();
     updateDurationBadge();
-    checkLastWorkoutBanner();
+    // If exercises already restored, don't show the "load last session" banner
+    if (currentExercises.length > 0) {
+      document.getElementById('last-workout-banner').style.display = 'none';
+    } else {
+      checkLastWorkoutBanner();
+    }
 
     // Show a subtle restore banner
     const banner = document.createElement('div');
