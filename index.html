@@ -1350,41 +1350,30 @@ input::placeholder { color: var(--text3); }
   <div class="page" id="page-coach">
     <div class="section-label">🏋️ AI COACH REX</div>
     
-    <!-- API Key Input (shows if no key stored) -->
+    <!-- API Key Manager (shows if no keys stored) -->
     <div id="groq-key-setup">
       <div class="ex-card" style="background: rgba(255,140,0,0.05); border-color: rgba(255,140,0,0.3);">
-        <div style="font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 1px; color: var(--orange); margin-bottom: 8px;">⚠️ GROQ API KEY REQUIRED</div>
-        <!-- Dynamic reason message -->
-        <div id="groq-key-reason" style="font-size: 11px; color: var(--text2); line-height: 1.6; margin-bottom: 10px;">
-          Get your free key at <a href="https://console.groq.com" target="_blank" style="color: var(--accent);">console.groq.com</a> (takes 30 seconds)
+        <div style="font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 1px; color: var(--orange); margin-bottom: 4px;">⚠️ GROQ API KEYS REQUIRED</div>
+        <div id="groq-key-reason" style="font-size: 10px; color: var(--text2); line-height: 1.6; margin-bottom: 10px;">
+          Add up to 10 keys from <a href="https://console.groq.com" target="_blank" style="color: var(--accent);">console.groq.com</a>. Coach Rex auto-rotates when one hits its daily limit.
         </div>
-        <input 
-          type="password" 
-          id="groq-key-input" 
-          placeholder="Paste your Groq API key here" 
-          style="width:100%; background: var(--bg3); border: 1px solid var(--border); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 8px; border-radius: 6px; margin-bottom: 8px;"
-        />
-        <button class="btn btn-primary" onclick="saveGroqKey()" style="width:100%; padding:10px;">SAVE KEY & START</button>
-
-        <!-- Shown only when table is missing or RLS is blocking -->
+        <input type="password" id="groq-key-input" placeholder="Paste Groq API key (gsk_...)" 
+          style="width:100%; background: var(--bg3); border: 1px solid var(--border); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 8px; border-radius: 6px; margin-bottom: 8px;"/>
+        <button class="btn btn-primary" onclick="saveGroqKey()" style="width:100%; padding:10px;">ADD KEY & START</button>
         <div id="groq-table-instructions" style="display:none; margin-top:14px; background:rgba(0,0,0,0.3); border:1px solid rgba(255,140,0,0.2); border-radius:6px; padding:10px;">
           <div style="font-size:10px; font-weight:700; color:var(--orange); letter-spacing:1px; margin-bottom:6px;">🛠 SUPABASE SETUP REQUIRED</div>
-          <div style="font-size:10px; color:var(--text2); line-height:1.7;">
-            Run this SQL once in your Supabase <b>SQL Editor</b>:
-          </div>
+          <div style="font-size:10px; color:var(--text2); line-height:1.7;">Run this SQL once in your Supabase <b>SQL Editor</b>:</div>
           <pre style="font-size:9px; color:var(--accent); background:var(--bg); padding:8px; border-radius:4px; margin-top:6px; overflow-x:auto; white-space:pre-wrap;">CREATE TABLE IF NOT EXISTS user_api_keys (
   user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  groq_api_key TEXT NOT NULL,
+  groq_api_keys TEXT[] NOT NULL DEFAULT \'{}\',
   created_at TIMESTAMPTZ DEFAULT now()
 );
-
 ALTER TABLE user_api_keys ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Users can manage own keys"
 ON user_api_keys FOR ALL
 USING (auth.uid() = user_id)
 WITH CHECK (auth.uid() = user_id);</pre>
-          <div style="font-size:10px; color:var(--text3); margin-top:6px;">After running the SQL, refresh this page and enter your key.</div>
+          <div style="font-size:10px; color:var(--text3); margin-top:6px;">After running the SQL, refresh and add your keys.</div>
         </div>
       </div>
     </div>
@@ -1401,7 +1390,7 @@ WITH CHECK (auth.uid() = user_id);</pre>
           <div style="display:flex; gap:6px;">
             <button onclick="refreshCoachData()" style="padding:4px 8px; background:none; border:1px solid var(--border2); color:var(--text3); font-size:10px; border-radius:4px; cursor:pointer; font-family:'JetBrains Mono',monospace;">🔄 REFRESH</button>
             <button onclick="clearChat()" style="padding:4px 8px; background:none; border:1px solid var(--border2); color:var(--text3); font-size:10px; border-radius:4px; cursor:pointer; font-family:'JetBrains Mono',monospace;">🗑️ CLEAR</button>
-            <button onclick="resetApiKey()" style="padding:4px 8px; background:none; border:1px solid rgba(255,140,0,0.3); color:var(--orange); font-size:10px; border-radius:4px; cursor:pointer; font-family:'JetBrains Mono',monospace;">🔑 RESET KEY</button>
+            <button onclick="showKeyManager()" style="padding:4px 8px; background:none; border:1px solid rgba(0,229,255,0.3); color:var(--accent); font-size:10px; border-radius:4px; cursor:pointer; font-family:'JetBrains Mono',monospace;">🔑 KEYS</button>
           </div>
         </div>
       </div>
@@ -3300,6 +3289,11 @@ const GROQ_MODEL = 'llama-3.3-70b-versatile';
 let coachMessages = [];
 let coachStats = null;
 
+// ── Multi-key rotation state ──────────────────────────────────────────────
+let _cachedApiKeys = null;      // string[] loaded from DB
+let _currentKeyIdx = 0;         // which key we're currently using
+let _keyStatus = [];            // 'ok' | 'exhausted' per key index
+
 // ── Initialize Coach ───────────────────────────────────────────────────────
 async function initCoach() {
   document.getElementById('groq-key-setup').style.display = 'none';
@@ -3311,27 +3305,31 @@ async function initCoach() {
   }
 
   try {
-    const key = await loadGroqKeyFromSupabase();
-    if (key) {
+    const keys = await loadKeysFromSupabase();
+    if (keys && keys.length > 0) {
+      _cachedApiKeys = keys;
+      _currentKeyIdx = 0;
+      _keyStatus = keys.map(() => 'ok');
       document.getElementById('groq-key-setup').style.display = 'none';
       document.getElementById('coach-chat-container').style.display = 'block';
+      // Show key count in status bar
+      const statusEl = document.getElementById('coach-status');
+      if (statusEl) statusEl.textContent = `🔑 ${keys.length} key(s) loaded | Analyzing workouts…`;
       analyzeWorkouts();
       if (coachMessages.length === 0) {
         sendAutoIntro();
       }
     } else {
-      // No key saved yet — show setup with clear message
       const reasonEl = document.getElementById('groq-key-reason');
-      if (reasonEl) reasonEl.textContent = 'No API key saved yet. Enter your Groq key once and it will be saved.';
+      if (reasonEl) reasonEl.innerHTML = 'No API keys saved yet. Add up to 10 keys — Coach Rex will auto-rotate when one hits its daily limit.<br><a href="https://console.groq.com" target="_blank" style="color:var(--accent)">Get free keys at console.groq.com</a>';
       document.getElementById('groq-key-setup').style.display = 'block';
     }
   } catch (err) {
     console.error('initCoach error:', err);
     const msg = (err.message || '') + '';
-    let reason = 'Could not load API key: ' + msg;
-    // Check for missing table
+    let reason = 'Could not load API keys: ' + msg;
     if (msg.includes('42P01') || msg.toLowerCase().includes('does not exist') || msg.toLowerCase().includes('relation')) {
-      reason = '⚠️ The user_api_keys table is missing in Supabase. Run the SQL below to create it.';
+      reason = '⚠️ The user_api_keys table needs updating. Run the SQL below in Supabase.';
       const instrEl = document.getElementById('groq-table-instructions');
       if (instrEl) instrEl.style.display = 'block';
     } else if (msg.includes('401') || msg.includes('403') || msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('policy')) {
@@ -3345,111 +3343,99 @@ async function initCoach() {
   }
 }
 
-async function saveGroqKey() {
-  const key = document.getElementById('groq-key-input').value.trim();
-  if (!key) {
-    alert('Please enter a valid API key');
-    return;
-  }
-  
-  try {
-    await saveGroqKeyToSupabase(key);
-    alert('✅ API key saved!');
-    initCoach();
-  } catch (err) {
-    alert('❌ Error saving API key: ' + err.message);
-  }
-}
-
-async function resetApiKey() {
-  if (!confirm('Reset your Groq API key? You\'ll need to enter a new one.')) return;
-  
-  try {
-    await deleteGroqKeyFromSupabase();
-    coachMessages = [];
-    document.getElementById('coach-messages').innerHTML = '';
-    alert('✅ API key reset. Enter a new one to continue.');
-    initCoach();
-  } catch (err) {
-    alert('❌ Error resetting API key: ' + err.message);
-  }
-}
-
-// ── Supabase API Key Storage ──────────────────────────────────────────────
-async function saveGroqKeyToSupabase(apiKey) {
-  if (!currentSession || !currentSession.user) {
-    throw new Error('Not logged in');
-  }
-  
+// ── Supabase API Key Storage (multi-key rotation) ───────────────────────
+async function loadKeysFromSupabase() {
+  if (!currentSession || !currentSession.user) return [];
   const userId = currentSession.user.id;
-  
-  // Try PATCH first (update existing row), fall back to POST (insert new row)
-  const patchRes = await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId, {
-    method: 'PATCH',
-    headers: {
-      ...getAuthHeaders(),
-      'Prefer': 'return=minimal'
-    },
-    body: JSON.stringify({ groq_api_key: apiKey })
-  });
-
-  // If PATCH updated 0 rows (no existing row), do a fresh INSERT
-  if (patchRes.status === 404 || patchRes.status === 200 || patchRes.status === 204) {
-    const countHeader = patchRes.headers && patchRes.headers.get ? patchRes.headers.get('content-range') : null;
-    const nothingUpdated = countHeader === '*/0' || patchRes.status === 404;
-    if (nothingUpdated) {
-      await dbFetch('/rest/v1/user_api_keys', {
-        method: 'POST',
-        headers: {
-          ...getAuthHeaders(),
-          'Prefer': 'return=minimal'
-        },
-        body: JSON.stringify({ user_id: userId, groq_api_key: apiKey })
-      });
-    }
-  }
-
-  return true;
-}
-
-async function loadGroqKeyFromSupabase() {
-  if (!currentSession || !currentSession.user) {
-    return null;
-  }
-
-  const userId = currentSession.user.id;
-
-  const res = await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId + '&select=groq_api_key');
-
-  // Surface HTTP errors properly (don't swallow them)
+  const res = await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId + '&select=groq_api_keys,groq_api_key');
   if (!res.ok) {
     const errText = await res.text();
     let parsed = {};
     try { parsed = JSON.parse(errText); } catch(e) {}
-    const msg = parsed.message || parsed.hint || parsed.code || errText || ('HTTP ' + res.status);
-    throw new Error(msg);
+    throw new Error(parsed.message || parsed.hint || parsed.code || errText || ('HTTP ' + res.status));
   }
-
   const data = await res.json();
-
-  if (data && data.length > 0 && data[0].groq_api_key) {
-    return data[0].groq_api_key;
+  if (!data || data.length === 0) return [];
+  const row = data[0];
+  // Support new array column and old single-key column (migration)
+  if (row.groq_api_keys && Array.isArray(row.groq_api_keys) && row.groq_api_keys.length > 0) {
+    return row.groq_api_keys.filter(Boolean);
   }
-
-  return null;
+  if (row.groq_api_key) return [row.groq_api_key];
+  return [];
 }
 
-async function deleteGroqKeyFromSupabase() {
-  if (!currentSession || !currentSession.user) {
-    throw new Error('Not logged in');
-  }
-  
+async function saveKeysToSupabase(keys) {
+  if (!currentSession || !currentSession.user) throw new Error('Not logged in');
   const userId = currentSession.user.id;
-  
-  await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId, {
-    method: 'DELETE'
+  const payload = { groq_api_keys: keys };
+  const patchRes = await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId, {
+    method: 'PATCH',
+    headers: { ...getAuthHeaders(), 'Prefer': 'return=representation,count=exact' },
+    body: JSON.stringify(payload)
   });
-  
+  const countHeader = patchRes.headers?.get('content-range');
+  const nothingUpdated = countHeader === '*/0' || patchRes.status === 404;
+  if (nothingUpdated) {
+    await dbFetch('/rest/v1/user_api_keys', {
+      method: 'POST',
+      headers: { ...getAuthHeaders(), 'Prefer': 'return=minimal' },
+      body: JSON.stringify({ user_id: userId, ...payload })
+    });
+  }
+  return true;
+}
+
+async function saveGroqKey() {
+  const key = document.getElementById('groq-key-input').value.trim();
+  if (!key || !key.startsWith('gsk_')) {
+    alert('Enter a valid Groq API key (starts with gsk_)');
+    return;
+  }
+  try {
+    let existing = [];
+    try { existing = await loadKeysFromSupabase(); } catch(e) {}
+    if (existing.includes(key)) { alert('This key is already saved.'); return; }
+    if (existing.length >= 10) { alert('Maximum 10 keys reached. Remove one first via Settings.'); return; }
+    const updated = [...existing, key];
+    await saveKeysToSupabase(updated);
+    _cachedApiKeys = updated;
+    _currentKeyIdx = 0;
+    _keyStatus = updated.map(() => 'ok');
+    document.getElementById('groq-key-input').value = '';
+    alert('✅ Key #' + updated.length + ' saved! (' + updated.length + '/10 keys active)');
+    initCoach();
+  } catch (err) {
+    alert('❌ Error saving key: ' + err.message);
+  }
+}
+
+async function resetApiKey() {
+  if (!confirm('Remove ALL Groq API keys? You\'ll need to re-add them.')) return;
+  try {
+    if (!currentSession || !currentSession.user) throw new Error('Not logged in');
+    const userId = currentSession.user.id;
+    await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId, { method: 'DELETE' });
+    _cachedApiKeys = null; _currentKeyIdx = 0; _keyStatus = [];
+    coachMessages = [];
+    document.getElementById('coach-messages').innerHTML = '';
+    alert('✅ All keys removed.');
+    initCoach();
+  } catch (err) {
+    alert('❌ Error: ' + err.message);
+  }
+}
+
+// Legacy shims for initCoach compatibility
+async function loadGroqKeyFromSupabase() {
+  const keys = await loadKeysFromSupabase();
+  return keys.length > 0 ? keys[0] : null;
+}
+async function saveGroqKeyToSupabase(apiKey) { await saveKeysToSupabase([apiKey]); }
+async function deleteGroqKeyFromSupabase() {
+  if (!currentSession || !currentSession.user) throw new Error('Not logged in');
+  const userId = currentSession.user.id;
+  await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId, { method: 'DELETE' });
   return true;
 }
 
@@ -3741,13 +3727,19 @@ ${exList || '  (none)'}`;
 }
 
 async function callGroq(userMessage) {
-  const apiKey = await loadGroqKeyFromSupabase();
-  if (!apiKey) throw new Error('No API key found. Please save your API key first.');
+  // Load + cache keys on first call
+  if (!_cachedApiKeys) {
+    _cachedApiKeys = await loadKeysFromSupabase();
+    _keyStatus = _cachedApiKeys.map(() => 'ok');
+    _currentKeyIdx = 0;
+  }
+  if (!_cachedApiKeys || _cachedApiKeys.length === 0) {
+    throw new Error('No API key found. Please add your Groq API key first.');
+  }
 
-  // Detect temporal queries and append relevant workout data
+  // Build enhanced message with workout data injection
   let enhancedMessage = userMessage;
   const temporalQuery = detectTemporalQuery(userMessage);
-  
   if (temporalQuery) {
     const filtered = filterWorkoutsByQuery(temporalQuery);
     if (filtered && filtered.error) {
@@ -3755,43 +3747,61 @@ async function callGroq(userMessage) {
     } else if (filtered && filtered.workouts && filtered.workouts.length > 0) {
       const workoutData = formatWorkoutsForContext(filtered.workouts);
       const compareNote = filtered.compare
-        ? '\nCompare these workouts side-by-side: volume, exercises, weights, duration, and overall progress between them.'
+        ? '\nCompare these workouts side-by-side: volume, exercises, weights, duration, progress.'
         : '';
       enhancedMessage += `\n\n[REQUESTED DATA: ${filtered.description}]${compareNote}\n${workoutData}\n[END DATA]`;
     }
   }
 
   coachMessages.push({ role: 'user', content: enhancedMessage });
+  const messages = [{ role: 'system', content: buildSystemPrompt() }, ...coachMessages];
 
-  const messages = [
-    { role: 'system', content: buildSystemPrompt() },
-    ...coachMessages
-  ];
+  // Try each key; rotate on rate-limit errors
+  const totalKeys = _cachedApiKeys.length;
+  let attempts = 0;
 
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      messages: messages,
-      temperature: 0.6,
-      max_completion_tokens: 1024
-    })
-  });
+  while (attempts < totalKeys) {
+    const keyIdx = (_currentKeyIdx + attempts) % totalKeys;
+    const apiKey = _cachedApiKeys[keyIdx];
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error?.message || 'API request failed');
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: GROQ_MODEL, messages, temperature: 0.6, max_completion_tokens: 1024 })
+    });
+
+    if (response.ok) {
+      // Success — advance index for round-robin (spread load)
+      _currentKeyIdx = keyIdx;
+      _keyStatus[keyIdx] = 'ok';
+      const data = await response.json();
+      const reply = data.choices[0].message.content;
+      coachMessages.push({ role: 'assistant', content: reply });
+      return reply;
+    }
+
+    // Check if it's a rate-limit / quota error
+    const errData = await response.json().catch(() => ({}));
+    const errMsg = errData.error?.message || '';
+    const isRateLimit = response.status === 429 || /rate.limit|quota|tpd|tpm/i.test(errMsg);
+
+    if (isRateLimit) {
+      _keyStatus[keyIdx] = 'exhausted';
+      attempts++;
+      // Show brief status update
+      const statusEl = document.getElementById('coach-status');
+      if (statusEl) statusEl.textContent = `⚠️ Key ${keyIdx+1}/${totalKeys} rate-limited, trying key ${((keyIdx+1)%totalKeys)+1}…`;
+      continue;
+    }
+
+    // Non-rate-limit error — throw immediately
+    throw new Error(errMsg || `API error ${response.status}`);
   }
 
-  const data = await response.json();
-  const reply = data.choices[0].message.content;
-  coachMessages.push({ role: 'assistant', content: reply });
-  
-  return reply;
+  // All keys exhausted
+  const exhausted = _keyStatus.filter(s => s === 'exhausted').length;
+  coachMessages.pop(); // remove the user message we pushed
+  throw new Error(`All ${exhausted} Groq key(s) have hit their daily token limit. Try again tomorrow or add more keys.`);
 }
 // Simple markdown parser for coach messages
 function parseMarkdown(text) {
@@ -3881,6 +3891,76 @@ function clearChat() {
 function refreshCoachData() {
   analyzeWorkouts();
   alert('Coach context refreshed with latest workout data!');
+}
+
+// ── Key Manager ──────────────────────────────────────────────────────────
+async function showKeyManager() {
+  const keys = _cachedApiKeys || await loadKeysFromSupabase();
+  const mask = k => k.slice(0,8) + '••••••••••••' + k.slice(-4);
+  
+  let rows = keys.length === 0 
+    ? '<div style="color:var(--text3);font-size:11px;padding:8px 0;">No keys saved yet.</div>'
+    : keys.map((k, i) => {
+        const status = (_keyStatus[i] === 'exhausted') ? '🔴 LIMIT' : (i === _currentKeyIdx ? '🟢 ACTIVE' : '⚪ READY');
+        return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">
+          <div style="flex:1;font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text2);">#${i+1} ${mask(k)}</div>
+          <div style="font-size:9px;letter-spacing:1px;color:${status.includes('LIMIT')?'var(--red)':status.includes('ACTIVE')?'var(--green)':'var(--text3)'};">${status}</div>
+          <button onclick="removeKey(${i})" style="background:none;border:1px solid rgba(255,59,85,0.3);color:var(--red);font-size:9px;padding:2px 6px;border-radius:3px;cursor:pointer;">✕</button>
+        </div>`;
+      }).join('');
+
+  const modal = document.createElement('div');
+  modal.id = 'key-manager-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:300;display:flex;align-items:flex-end;backdrop-filter:blur(6px);';
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:18px 18px 0 0;padding:20px 18px 30px;width:100%;max-height:80vh;overflow-y:auto;">
+      <div style="width:36px;height:4px;background:var(--border2);border-radius:2px;margin:0 auto 16px;"></div>
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;color:var(--accent);letter-spacing:2px;margin-bottom:4px;">🔑 GROQ API KEYS</div>
+      <div style="font-size:10px;color:var(--text2);margin-bottom:14px;">${keys.length}/10 keys • Auto-rotates on rate limit</div>
+      <div id="key-list-rows">${rows}</div>
+      ${keys.length < 10 ? `
+      <div style="margin-top:14px;">
+        <input type="password" id="km-new-key" placeholder="Add new key (gsk_...)"
+          style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:8px;border-radius:6px;margin-bottom:8px;"/>
+        <button onclick="addKeyFromManager()" style="width:100%;padding:10px;background:var(--accent);color:#000;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:900;letter-spacing:2px;border:none;border-radius:6px;cursor:pointer;">+ ADD KEY</button>
+      </div>` : '<div style="font-size:10px;color:var(--text3);margin-top:10px;">Maximum 10 keys reached.</div>'}
+      <button onclick="document.getElementById(\'key-manager-modal\').remove()" 
+        style="width:100%;margin-top:10px;padding:8px;background:none;border:1px solid var(--border2);color:var(--text2);font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:2px;border-radius:6px;cursor:pointer;">CLOSE</button>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+async function removeKey(idx) {
+  if (!confirm('Remove key #' + (idx+1) + '?')) return;
+  const keys = _cachedApiKeys || await loadKeysFromSupabase();
+  keys.splice(idx, 1);
+  await saveKeysToSupabase(keys);
+  _cachedApiKeys = keys;
+  _keyStatus = keys.map(() => 'ok');
+  _currentKeyIdx = 0;
+  document.getElementById('key-manager-modal')?.remove();
+  if (keys.length === 0) { initCoach(); } else { showKeyManager(); }
+  const statusEl = document.getElementById('coach-status');
+  if (statusEl) statusEl.textContent = `🔑 ${keys.length} key(s) active`;
+}
+
+async function addKeyFromManager() {
+  const input = document.getElementById('km-new-key');
+  const key = input?.value.trim();
+  if (!key || !key.startsWith('gsk_')) { alert('Enter a valid Groq key (gsk_...)'); return; }
+  const keys = _cachedApiKeys || await loadKeysFromSupabase();
+  if (keys.includes(key)) { alert('Key already saved.'); return; }
+  if (keys.length >= 10) { alert('Max 10 keys reached.'); return; }
+  keys.push(key);
+  await saveKeysToSupabase(keys);
+  _cachedApiKeys = keys;
+  _keyStatus = keys.map(() => 'ok');
+  _currentKeyIdx = 0;
+  document.getElementById('key-manager-modal')?.remove();
+  showKeyManager();
+  const statusEl = document.getElementById('coach-status');
+  if (statusEl) statusEl.textContent = `🔑 ${keys.length} key(s) active`;
 }
 
 // Hook into existing showPage function to initialize coach when that page is shown
