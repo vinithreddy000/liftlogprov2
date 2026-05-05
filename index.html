@@ -1326,6 +1326,7 @@ input::placeholder { color: var(--text3); }
           <div style="display:flex; gap:6px;">
             <button onclick="refreshCoachData()" style="padding:4px 8px; background:none; border:1px solid var(--border2); color:var(--text3); font-size:10px; border-radius:4px; cursor:pointer; font-family:'JetBrains Mono',monospace;">🔄 REFRESH</button>
             <button onclick="clearChat()" style="padding:4px 8px; background:none; border:1px solid var(--border2); color:var(--text3); font-size:10px; border-radius:4px; cursor:pointer; font-family:'JetBrains Mono',monospace;">🗑️ CLEAR</button>
+            <button onclick="resetApiKey()" style="padding:4px 8px; background:none; border:1px solid rgba(255,140,0,0.3); color:var(--orange); font-size:10px; border-radius:4px; cursor:pointer; font-family:'JetBrains Mono',monospace;">🔑 RESET KEY</button>
           </div>
         </div>
       </div>
@@ -3225,29 +3226,111 @@ let coachMessages = [];
 let coachStats = null;
 
 // ── Initialize Coach ───────────────────────────────────────────────────────
-function initCoach() {
-  const key = localStorage.getItem('groq_api_key');
-  if (!key) {
+async function initCoach() {
+  // Try to load API key from Supabase
+  try {
+    const key = await loadGroqKeyFromSupabase();
+    if (key) {
+      document.getElementById('groq-key-setup').style.display = 'none';
+      document.getElementById('coach-chat-container').style.display = 'block';
+      analyzeWorkouts();
+      if (coachMessages.length === 0) {
+        sendAutoIntro();
+      }
+    } else {
+      document.getElementById('groq-key-setup').style.display = 'block';
+      document.getElementById('coach-chat-container').style.display = 'none';
+    }
+  } catch (err) {
+    console.error('Error loading API key:', err);
     document.getElementById('groq-key-setup').style.display = 'block';
     document.getElementById('coach-chat-container').style.display = 'none';
-  } else {
-    document.getElementById('groq-key-setup').style.display = 'none';
-    document.getElementById('coach-chat-container').style.display = 'block';
-    analyzeWorkouts();
-    if (coachMessages.length === 0) {
-      sendAutoIntro();
-    }
   }
 }
 
-function saveGroqKey() {
+async function saveGroqKey() {
   const key = document.getElementById('groq-key-input').value.trim();
   if (!key) {
     alert('Please enter a valid API key');
     return;
   }
-  localStorage.setItem('groq_api_key', key);
-  initCoach();
+  
+  try {
+    await saveGroqKeyToSupabase(key);
+    alert('✅ API key saved!');
+    initCoach();
+  } catch (err) {
+    alert('❌ Error saving API key: ' + err.message);
+  }
+}
+
+async function resetApiKey() {
+  if (!confirm('Reset your Groq API key? You\'ll need to enter a new one.')) return;
+  
+  try {
+    await deleteGroqKeyFromSupabase();
+    coachMessages = [];
+    document.getElementById('coach-messages').innerHTML = '';
+    alert('✅ API key reset. Enter a new one to continue.');
+    initCoach();
+  } catch (err) {
+    alert('❌ Error resetting API key: ' + err.message);
+  }
+}
+
+// ── Supabase API Key Storage ──────────────────────────────────────────────
+async function saveGroqKeyToSupabase(apiKey) {
+  if (!currentSession || !currentSession.user) {
+    throw new Error('Not logged in');
+  }
+  
+  const userId = currentSession.user.id;
+  
+  // Upsert: insert or update if exists
+  const res = await dbFetch('/rest/v1/user_api_keys', {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Prefer': 'resolution=merge-duplicates'
+    },
+    body: JSON.stringify({
+      user_id: userId,
+      groq_api_key: apiKey
+    })
+  });
+  
+  return true;
+}
+
+async function loadGroqKeyFromSupabase() {
+  if (!currentSession || !currentSession.user) {
+    return null;
+  }
+  
+  const userId = currentSession.user.id;
+  
+  const res = await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId + '&select=groq_api_key');
+  const data = await res.json();
+  
+  if (data && data.length > 0) {
+    return data[0].groq_api_key;
+  }
+  
+  return null;
+}
+
+async function deleteGroqKeyFromSupabase() {
+  if (!currentSession || !currentSession.user) {
+    throw new Error('Not logged in');
+  }
+  
+  const userId = currentSession.user.id;
+  
+  await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId, {
+    method: 'DELETE'
+  });
+  
+  return true;
 }
 
 // ── Workout Analysis ───────────────────────────────────────────────────────
@@ -3397,8 +3480,8 @@ async function sendAutoIntro() {
 }
 
 async function callGroq(userMessage) {
-  const apiKey = localStorage.getItem('groq_api_key');
-  if (!apiKey) throw new Error('No API key');
+  const apiKey = await loadGroqKeyFromSupabase();
+  if (!apiKey) throw new Error('No API key found. Please save your API key first.');
 
   coachMessages.push({ role: 'user', content: userMessage });
 
