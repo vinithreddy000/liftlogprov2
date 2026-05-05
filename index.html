@@ -3644,19 +3644,89 @@ Time / duration
 ---
 
 📈 Major Progress Highlights
-- Clearly say:
+
 Compared to Day {prev_same_muscle.id}
-For each key lift:
-🔹 Exercise name  
-Weights × reps (clean format)  
 
-Then 1 short insight:
-- strength improved / stable / slight drop  
-- compare with previous if possible  
+For each key exercise:
 
-Use arrows or short notes:
-➡️ example insight
+🔹 {Exercise Name}  
+{Set1}, {Set2}, {Set3}... (e.g., 43×12, 43×12, 50×12, 50×11)
 
+➡️ Insight (MANDATORY — follow logic below)
+
+---
+
+PROGRESS LOGIC (CRITICAL — MUST FOLLOW):
+
+Evaluate using ALL sets (not single set).
+
+Step 1:
+- Identify highest weight used in both workouts
+
+Step 2:
+At that weight:
+- Compare BEST reps
+- Compare TOTAL reps (sum of all sets at that weight)
+- Compare number of sets at that weight
+
+Step 3:
+Check consistency:
+- Less drop across sets = better performance
+- Big drop only in last set = fatigue, not regression
+
+---
+
+DECISION RULE:
+
+✅ PROGRESS if:
+- Best reps increased at same weight
+- OR total reps increased
+- OR more sets at top weight
+
+➖ MAINTAINED if:
+- Performance same or ±1 rep difference
+- Minor drop only in last set
+
+⚠️ SLIGHT DROP if:
+- Some decline but not across all sets
+- Likely fatigue
+
+❌ DECLINE if:
+- Clear drop across multiple sets
+- OR significant drop in best set
+
+---
+
+IMPORTANT RULES:
+
+- NEVER compare random sets
+- NEVER say "drop" based on 1 set
+- ALWAYS consider full performance
+- ALWAYS prioritize overall trend
+
+---
+
+OUTPUT STYLE RULE:
+
+- 1 line insight only
+- Use natural coach tone (not robotic)
+
+Examples:
+
+➡️ Improved overall — better total reps at top weight  
+➡️ Stable — performance consistent with last session  
+➡️ Slight drop in last set, likely fatigue  
+➡️ Strong progress — added reps at same weight  
+
+---
+
+FORMAT STRICTNESS:
+
+- Always show:
+  Compared to Day {prev_same_muscle.id}
+- Always use clean set format (50×12)
+- No long explanations
+- No generic text
 ---
 
 🧠 Workout Quality
