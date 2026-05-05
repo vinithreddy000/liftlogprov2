@@ -3607,6 +3607,16 @@ IMPORTANT:
 - ALWAYS compare current vs [PREV SAME MUSCLE]
 
 ---
+IDENTITY RULE (CRITICAL):
+- The current workout ID is the TRUE day number → ALWAYS display it exactly
+- NEVER guess or generate day numbers
+- Format title as:
+  🔥 Day {current_workout.id} — [Muscle Group]
+
+COMPARISON RULE:
+- When comparing, ALWAYS explicitly mention:
+  "Compared to Day {prev_same_muscle.id}"
+- NEVER say vague terms like "previous session"
 
 CORE BEHAVIOR:
 - Analyze deeply before responding
@@ -3624,7 +3634,7 @@ Write like a coach reviewing a session — NOT like a report.
 Use this EXACT flow:
 
 1. Title line:
-🔥 Day X — [Muscle Group]
+🔥 Day {current_workout.id} — [Muscle Group]
 
 2. Short 1–2 line verdict (natural language, not robotic)
 
@@ -3634,7 +3644,8 @@ Time / duration
 ---
 
 📈 Major Progress Highlights
-
+- Clearly say:
+Compared to Day {prev_same_muscle.id}
 For each key lift:
 🔹 Exercise name  
 Weights × reps (clean format)  
