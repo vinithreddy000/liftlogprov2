@@ -1301,7 +1301,8 @@ input::placeholder { color: var(--text3); }
     <div id="groq-key-setup">
       <div class="ex-card" style="background: rgba(255,140,0,0.05); border-color: rgba(255,140,0,0.3);">
         <div style="font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 1px; color: var(--orange); margin-bottom: 8px;">⚠️ GROQ API KEY REQUIRED</div>
-        <div style="font-size: 11px; color: var(--text2); line-height: 1.6; margin-bottom: 10px;">
+        <!-- Dynamic reason message -->
+        <div id="groq-key-reason" style="font-size: 11px; color: var(--text2); line-height: 1.6; margin-bottom: 10px;">
           Get your free key at <a href="https://console.groq.com" target="_blank" style="color: var(--accent);">console.groq.com</a> (takes 30 seconds)
         </div>
         <input 
@@ -1311,6 +1312,27 @@ input::placeholder { color: var(--text3); }
           style="width:100%; background: var(--bg3); border: 1px solid var(--border); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 8px; border-radius: 6px; margin-bottom: 8px;"
         />
         <button class="btn btn-primary" onclick="saveGroqKey()" style="width:100%; padding:10px;">SAVE KEY & START</button>
+
+        <!-- Shown only when table is missing or RLS is blocking -->
+        <div id="groq-table-instructions" style="display:none; margin-top:14px; background:rgba(0,0,0,0.3); border:1px solid rgba(255,140,0,0.2); border-radius:6px; padding:10px;">
+          <div style="font-size:10px; font-weight:700; color:var(--orange); letter-spacing:1px; margin-bottom:6px;">🛠 SUPABASE SETUP REQUIRED</div>
+          <div style="font-size:10px; color:var(--text2); line-height:1.7;">
+            Run this SQL once in your Supabase <b>SQL Editor</b>:
+          </div>
+          <pre style="font-size:9px; color:var(--accent); background:var(--bg); padding:8px; border-radius:4px; margin-top:6px; overflow-x:auto; white-space:pre-wrap;">CREATE TABLE IF NOT EXISTS user_api_keys (
+  user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  groq_api_key TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE user_api_keys ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage own keys"
+ON user_api_keys FOR ALL
+USING (auth.uid() = user_id)
+WITH CHECK (auth.uid() = user_id);</pre>
+          <div style="font-size:10px; color:var(--text3); margin-top:6px;">After running the SQL, refresh this page and enter your key.</div>
+        </div>
       </div>
     </div>
 
@@ -3227,18 +3249,17 @@ let coachStats = null;
 
 // ── Initialize Coach ───────────────────────────────────────────────────────
 async function initCoach() {
-  console.log('[Coach] === INIT COACH CALLED ===');
-  console.log('[Coach] currentSession:', currentSession ? 'EXISTS' : 'NULL');
-  console.log('[Coach] currentSession.user:', currentSession?.user ? 'EXISTS' : 'NULL');
-  
-  // Try to load API key from Supabase
+  document.getElementById('groq-key-setup').style.display = 'none';
+  document.getElementById('coach-chat-container').style.display = 'none';
+
+  if (!currentSession || !currentSession.user) {
+    document.getElementById('groq-key-setup').style.display = 'block';
+    return;
+  }
+
   try {
-    console.log('[Coach] Calling loadGroqKeyFromSupabase...');
     const key = await loadGroqKeyFromSupabase();
-    console.log('[Coach] Key loaded:', key ? 'YES (length: ' + key.length + ')' : 'NO (null/undefined)');
-    
     if (key) {
-      console.log('[Coach] ✅ API key found! Showing chat interface.');
       document.getElementById('groq-key-setup').style.display = 'none';
       document.getElementById('coach-chat-container').style.display = 'block';
       analyzeWorkouts();
@@ -3246,16 +3267,29 @@ async function initCoach() {
         sendAutoIntro();
       }
     } else {
-      console.log('[Coach] ⚠️ No API key found. Showing setup form.');
+      // No key saved yet — show setup with clear message
+      const reasonEl = document.getElementById('groq-key-reason');
+      if (reasonEl) reasonEl.textContent = 'No API key saved yet. Enter your Groq key once and it will be saved.';
       document.getElementById('groq-key-setup').style.display = 'block';
-      document.getElementById('coach-chat-container').style.display = 'none';
     }
   } catch (err) {
-    console.error('[Coach] ❌ Error loading API key:', err);
+    console.error('initCoach error:', err);
+    const msg = (err.message || '') + '';
+    let reason = 'Could not load API key: ' + msg;
+    // Check for missing table
+    if (msg.includes('42P01') || msg.toLowerCase().includes('does not exist') || msg.toLowerCase().includes('relation')) {
+      reason = '⚠️ The user_api_keys table is missing in Supabase. Run the SQL below to create it.';
+      const instrEl = document.getElementById('groq-table-instructions');
+      if (instrEl) instrEl.style.display = 'block';
+    } else if (msg.includes('401') || msg.includes('403') || msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('policy')) {
+      reason = '⚠️ Permission denied. Check Supabase RLS policy on user_api_keys table.';
+      const instrEl = document.getElementById('groq-table-instructions');
+      if (instrEl) instrEl.style.display = 'block';
+    }
+    const reasonEl = document.getElementById('groq-key-reason');
+    if (reasonEl) reasonEl.innerHTML = reason;
     document.getElementById('groq-key-setup').style.display = 'block';
-    document.getElementById('coach-chat-container').style.display = 'none';
   }
-}
 }
 
 async function saveGroqKey() {
@@ -3313,35 +3347,34 @@ async function saveGroqKeyToSupabase(apiKey) {
 }
 
 async function loadGroqKeyFromSupabase() {
-  console.log('[loadGroqKey] Function called');
-  
   if (!currentSession || !currentSession.user) {
-    console.log('[loadGroqKey] ❌ No session or user - returning null');
     return null;
   }
-  
+
   const userId = currentSession.user.id;
-  console.log('[loadGroqKey] User ID:', userId);
-  
-  try {
-    console.log('[loadGroqKey] Fetching from DB...');
-    const res = await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId + '&select=groq_api_key');
-    const data = await res.json();
-    console.log('[loadGroqKey] Response data:', data);
-    
-    if (data && data.length > 0) {
-      console.log('[loadGroqKey] ✅ Found API key in database');
-      return data[0].groq_api_key;
-    }
-    
-    console.log('[loadGroqKey] ⚠️ No rows returned from database');
-    return null;
-  } catch (err) {
-    // Table might not exist yet or other DB error
-    console.warn('[loadGroqKey] ❌ Error:', err.message);
-    return null;
+
+  const res = await dbFetch('/rest/v1/user_api_keys?user_id=eq.' + userId + '&select=groq_api_key');
+
+  // Surface HTTP errors properly (don't swallow them)
+  if (!res.ok) {
+    const errText = await res.text();
+    let parsed = {};
+    try { parsed = JSON.parse(errText); } catch(e) {}
+    const msg = parsed.message || parsed.hint || parsed.code || errText || ('HTTP ' + res.status);
+    throw new Error(msg);
   }
+
+  const data = await res.json();
+
+  if (data && data.length > 0 && data[0].groq_api_key) {
+    return data[0].groq_api_key;
+  }
+
+  return null;
 }
+
+async function deleteGroqKeyFromSupabase() {
+  if (!currentSession || !currentSession.user) {
     throw new Error('Not logged in');
   }
   
