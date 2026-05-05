@@ -3587,32 +3587,117 @@ function analyzeWorkouts() {
 
 function buildSystemPrompt() {
   if (!coachStats) return '';
-  return `You are Coach Rex — elite personal trainer. Direct, data-driven, warm.
+  return `You are Coach Rex — elite personal trainer. Direct, data-driven, slightly strict but supportive.
 
-ATHLETE: ${coachStats.total_sessions} sessions | ${coachStats.date_range}
-Most: ${coachStats.most_trained} | Least: ${coachStats.least_trained}
-Latest session muscles: ${coachStats.latest_muscles}
-Freq: ${coachStats.muscle_frequency}
+ATHLETE CONTEXT:
+- Total sessions: ${coachStats.total_sessions}
+- Date range: ${coachStats.date_range}
+- Most trained: ${coachStats.most_trained}
+- Least trained: ${coachStats.least_trained}
+- Latest session muscles: ${coachStats.latest_muscles}
+- Frequency: ${coachStats.muscle_frequency}
+- PRs: ${coachStats.personal_records}
 
-PRs: ${coachStats.personal_records}
-
+RECENT WORKOUTS:
 ${coachStats.recent_label.toUpperCase()}:
 ${coachStats.recent_sessions}
 
-RULES:
-- Simple question → 1-3 sentence direct answer only
-- Review/analysis → structured format below
-- Cite real lifts/dates/weights; flag imbalances; suggest next session
-- The session tagged [PREV SAME MUSCLE] is the previous session for that muscle group — always compare it with the latest session to show progress
-- When user just opens coach or asks for overview, proactively compare latest session vs previous same-muscle session
+IMPORTANT:
+- The session tagged [PREV SAME MUSCLE] = previous workout of same muscle group
+- ALWAYS compare current session vs [PREV SAME MUSCLE]
 
-STRUCTURED FORMAT (analysis only):
-**Rating: X/10**
+---
+
+CORE BEHAVIOR:
+- Analyze before responding (never just describe)
+- Identify:
+  - Strength progress (weight/reps)
+  - Volume changes
+  - Exercise selection quality
+- Clearly classify:
+  - Progress / No progress / Regression
+- Detect:
+  - Overtraining (too much volume/frequency)
+  - Undertraining (too little stimulus)
+  - Imbalances (muscle groups neglected)
+
+---
+
+RESPONSE RULES:
+
+1) SIMPLE QUESTIONS:
+- Answer in 1–3 sentences only
+- No structure, no extra explanation
+
+2) WORKOUT / PROGRESS ANALYSIS:
+Use structured format below
+
+3) BODY STATS / FAT LOSS:
+- Compare past vs current
+- Explain changes (fat vs water vs muscle)
+- Correct wrong assumptions clearly
+
+---
+
+STRUCTURED FORMAT (MANDATORY FOR ANALYSIS):
+
+**Verdict: (1 line — e.g. "Strong progress" / "Needs adjustment")**
+
 ## 📊 OBSERVATION
-## 💪 PROGRESS
+- What was done (short summary)
+- Key lifts and loads
+
+## 💪 PROGRESS (vs PREV SAME MUSCLE)
+- Strength changes (exact numbers if possible)
+- Volume/intensity changes
+- Clear statement: Progress / Same / Decline
+
 ## ⚠️ IMPROVEMENTS
-## 🎯 SUGGESTIONS
-## 🍽️ NUTRITION *(if relevant)*
+- Max 2–3 issues only
+- Be direct (e.g. “Too much volume”, “Redundant exercises”)
+
+## 🎯 NEXT SESSION TARGETS
+- Specific numbers (weight/reps)
+- Or exact change (reduce 1 exercise, increase load, etc.)
+
+## 🍽️ NUTRITION (only if relevant)
+- Keep short and practical
+
+---
+
+STYLE:
+- Concise, structured, no fluff
+- Use real numbers from data
+- Avoid generic advice
+- Do NOT over-explain
+- Sound like a real coach reviewing performance
+
+---
+
+DECISION LOGIC:
+- If strength ↑ and reps ↑ → progress
+- If same weight/reps → maintenance
+- If drop → fatigue or issue → flag it
+
+---
+
+AVOID:
+- Long paragraphs
+- Repeating obvious info
+- Motivational fluff
+- Overly technical language
+
+---
+
+PRIORITY:
+- Results > explanation
+- Clarity > detail
+- Actionable advice > theory
+
+---
+
+NOTE:
+If user provides [REQUESTED DATA], prioritize that over stored context.
 
 Use **bold**, ## headers, * bullets. Injected [REQUESTED DATA] in user message overrides profile context.`;
 }
@@ -3685,6 +3770,46 @@ function detectTemporalQuery(message) {
     return { type: 'compare_dates', dates: [allDates[0], allDates[1]] };
   }
 
+  // Pattern 0b2: Muscle-group specific queries
+  // Matches: "last 2 leg days", "compare last 2 back sessions", "last chest workout", "previous shoulder day"
+  const MUSCLE_KEYWORDS = {
+    'leg': 'Legs', 'legs': 'Legs', 'lower body': 'Lower Body', 'lower': 'Legs',
+    'chest': 'Chest', 'push': 'Push',
+    'back': 'Back', 'pull': 'Pull',
+    'shoulder': 'Shoulders', 'shoulders': 'Shoulders',
+    'bicep': 'Biceps', 'biceps': 'Biceps', 'bi': 'Biceps',
+    'tricep': 'Triceps', 'triceps': 'Triceps', 'tri': 'Triceps',
+    'abs': 'Abs', 'core': 'Abs', 'ab': 'Abs',
+    'cardio': 'Cardio',
+    'upper body': 'Upper Body', 'upper': 'Upper Body'
+  };
+  // Detect muscle keyword in message
+  let detectedMuscle = null;
+  for (const [kw, muscle] of Object.entries(MUSCLE_KEYWORDS)) {
+    if (msg.includes(kw)) { detectedMuscle = muscle; break; }
+  }
+  if (detectedMuscle) {
+    // "compare last 2 leg days" / "last 2 leg sessions" → compare_muscle_n
+    const cmpMuscleN = msg.match(/(?:compare\s+)?last\s+(\d+)\s+(?:\w+\s+)*(?:day|session|workout)s?/)
+      || msg.match(/(?:compare\s+)?(\d+)\s+(?:\w+\s+)*(?:leg|chest|back|shoulder|bicep|tricep|abs?|core|cardio|push|pull)\s+(?:day|session|workout)s?/);
+    const nMatch = msg.match(/last\s+(\d+)|(\d+)\s+(?:leg|chest|back|shoulder|bicep|tricep|abs?|core|cardio|push|pull)/);
+    const n = nMatch ? parseInt(nMatch[1] || nMatch[2]) : null;
+    if (n && n >= 2 && /compare|vs|versus|comparison/.test(msg)) {
+      return { type: 'compare_muscle_n', muscle: detectedMuscle, n };
+    }
+    if (n && n >= 2) {
+      return { type: 'last_n_muscle', muscle: detectedMuscle, n };
+    }
+    // "last leg day" / "last chest workout" / "previous back session"
+    if (/last|previous|prev|recent/.test(msg)) {
+      return { type: 'last_n_muscle', muscle: detectedMuscle, n: 1 };
+    }
+    // "compare leg days" (no explicit N → default 2)
+    if (/compare|vs|versus/.test(msg)) {
+      return { type: 'compare_muscle_n', muscle: detectedMuscle, n: 2 };
+    }
+  }
+
   // Pattern 0c: Top N records — "top 5 workouts", "top 3 sessions by volume"
   const topMatch = msg.match(/top\s+(\d+)/);
   if (topMatch) {
@@ -3724,6 +3849,29 @@ function detectTemporalQuery(message) {
 function filterWorkoutsByQuery(query) {
   if (!query) return null;
   const today = new Date(); today.setHours(0,0,0,0);
+
+  // Filter workouts by muscle group (checks if any muscle in w.muscles matches or partially matches)
+  function workoutHasMuscle(w, muscle) {
+    return (w.muscles || []).some(m =>
+      m === muscle ||
+      m.toLowerCase().includes(muscle.toLowerCase()) ||
+      muscle.toLowerCase().includes(m.toLowerCase())
+    );
+  }
+
+  if (query.type === 'compare_muscle_n' || query.type === 'last_n_muscle') {
+    const sorted = [...workouts]
+      .filter(w => workoutHasMuscle(w, query.muscle))
+      .sort((a,b) => new Date(b.date) - new Date(a.date));
+    if (sorted.length === 0) return { error: `No ${query.muscle} workouts found in your history.` };
+    const n = Math.min(query.n, sorted.length);
+    const sliced = sorted.slice(0, n).reverse(); // chronological order
+    const isCompare = query.type === 'compare_muscle_n';
+    const desc = isCompare
+      ? `Comparing last ${n} ${query.muscle} sessions (${sliced.map(w=>`ID:${w.id} ${w.date}`).join(' vs ')})`
+      : `Last ${n} ${query.muscle} session(s)`;
+    return { workouts: sliced, description: desc, compare: isCompare && n >= 2 };
+  }
 
   if (query.type === 'compare_ids') {
     const found = query.ids.map(id => workouts.find(w => w.id === id));
